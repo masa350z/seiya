@@ -254,7 +254,9 @@ class BoatDataset:
         fname += '.npy'
 
         if os.path.exists(fname):
-            return np.load(fname)
+            ret = np.load(fname)
+            ret[ret > 20000] -= 20000
+            return ret
         else:
             field_data = self.ret_field_conditions()
 
@@ -295,7 +297,7 @@ class BoatDataset:
             ret = np.array(ret)
             np.save(fname, ret)
 
-            ret[ret > 25000] -= 25000
+            ret[ret > 20000] -= 20000
 
             return ret
 
@@ -315,31 +317,6 @@ class BoatDataset:
 
         return course_th
 
-    def ret_course_th_onehot(self):
-        y_data = np.zeros((len(self.ar_num), 120))
-        th_ar = self.ret_course_th()
-
-        for i in tqdm(range(len(th_ar))):
-            temp_ar = th_ar[i]
-
-            sanren = ''
-            for nm in temp_ar:
-                sanren += str(nm)
-
-            y_data[i][self.sanren_dic[sanren]] = 1
-
-        return y_data
-
-    def ret_course_th_123(self):
-        y_data = np.zeros((len(self.ar_num), 3, 6))
-        th_ar = self.ret_course_th()
-
-        for i in tqdm(range(len(self.ar_num))):
-            for th in range(3):
-                y_data[i][th][th_ar[i][th]-1] = 1
-
-        return y_data
-
     def ret_sanren_odds(self):
         sanren_odds_lis = []
         for i in tqdm(range(len(self.ar_th))):
@@ -352,9 +329,8 @@ class BoatDataset:
         return np.array(sanren_odds_lis)
 
     def ret_sorted_odds(self):
-        sort = self.ret_sorted(np.tile(
-                    np.array([1, 2, 3, 4, 5, 6]),
-                    (len(self.ar_num), 1)))
+        sort = self.ret_sorted(np.tile(np.array([1, 2, 3, 4, 5, 6]),
+                                       (len(self.ar_num), 1)))
 
         dics = []
         for i in tqdm(range(len(sort))):
