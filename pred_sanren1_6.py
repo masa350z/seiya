@@ -125,5 +125,5 @@ boatdataset.model = RNN_Boat_Bert()
 boatdataset.set_dataset(batch_size=120)
 boatdataset.model_compile(learning_rate=2e-5)
 # %%
-boatdataset.start_training(epochs=100, weight_name='best_sanren1_6')
+boatdataset.start_training(epochs=100, weight_name='datas/best_sanren1_6')
 # %%

@@ -1,5 +1,5 @@
 # %%
-from transformers import TFBertModel
+from transformers import TFBertModel, TFAlbertModel
 from keras.layers import Dense
 from keras.models import Model
 import tensorflow as tf
@@ -104,11 +104,27 @@ class Simple_Boat_Bert(Model):
         return x
 
 
+class Simple_Boat_Albert(Model):
+    def __init__(self, num_classes, albert_model='albert-base-v2'):
+        super(Simple_Boat_Albert, self).__init__(name='boat_albert')
+
+        self.albert_model = TFAlbertModel.from_pretrained(albert_model,
+                                                          output_hidden_states=True,
+                                                          output_attentions=True)
+        self.output_layer = Dense(num_classes, activation='softmax')
+
+    def call(self, inputs):
+        x = self.albert_model(inputs)
+        x = self.output_layer(x[0][:, 0, :])
+
+        return x
+
+
 # %%
 boatdataset = Sanren120()
 boatdataset.model = Simple_Boat_Bert(120)
 boatdataset.set_dataset(batch_size=120)
 boatdataset.model_compile(learning_rate=2e-5)
 # %%
-boatdataset.start_training(epochs=100, weight_name='best_sanren120')
+boatdataset.start_training(epochs=100, weight_name='datas/best_sanren120')
 # %%
