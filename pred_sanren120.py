@@ -34,12 +34,12 @@ class Sanren120(boatdata.BoatDataset):
         self.label = label
 
     def set_dataset(self, batch_size):
-        x_train, x_valid, x_test = boatdata.split_data(self.tokenized_inputs)
-        y_train, y_valid, y_test = boatdata.split_data(self.label)
+        self.x_train, self.x_valid, self.x_test = boatdata.split_data(self.tokenized_inputs)
+        self.y_train, self.y_valid, self.y_test = boatdata.split_data(self.label)
 
-        self.train = tf.data.Dataset.from_tensor_slices((x_train, y_train)).batch(batch_size)
-        self.valid = tf.data.Dataset.from_tensor_slices((x_valid, y_valid)).batch(batch_size)
-        self.test = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(batch_size)
+        self.train = tf.data.Dataset.from_tensor_slices((self.x_train, self.y_train)).batch(batch_size)
+        self.valid = tf.data.Dataset.from_tensor_slices((self.x_valid, self.y_valid)).batch(batch_size)
+        self.test = tf.data.Dataset.from_tensor_slices((self.x_test, self.y_test)).batch(batch_size)
 
     def model_compile(self, learning_rate=False):
         if learning_rate:
@@ -105,6 +105,10 @@ class Simple_Boat_Bert(Model):
 
 
 class Simple_Boat_Albert(Model):
+    """
+    ALBERTの出力をそのまま
+    （クラス数）次元のカテゴライズレイヤーに渡すモデル
+    """
     def __init__(self, num_classes, albert_model='albert-base-v2'):
         super(Simple_Boat_Albert, self).__init__(name='boat_albert')
 
@@ -122,9 +126,46 @@ class Simple_Boat_Albert(Model):
 
 # %%
 boatdataset = Sanren120()
-boatdataset.model = Simple_Boat_Bert(120)
+boatdataset.model = Simple_Boat_Bert(120, bert_model='bert-base-uncased')
 boatdataset.set_dataset(batch_size=120)
 boatdataset.model_compile(learning_rate=2e-5)
 # %%
-boatdataset.start_training(epochs=100, weight_name='datas/best_sanren120')
+boatdataset.start_training(epochs=100, weight_name='datas/sanren120/bert_sanren120')
+# %%
+boatdataset.model.load_weights('datas/sanren120/bert_sanren120')
+# %%
+pred = boatdataset.model.predict(boatdataset.valid)
+y = boatdataset.y_valid
+# %%
+np.sum(np.sum(np.abs(y - ((pred - np.max(pred,axis=1).reshape(-1,1))==0)*1),axis=1) == 0)/len(y)
+# %%
+sorted_odds = boatdataset.ret_sorted_odds()
+odds_tr, odds_vl, odds_te = boatdata.split_data(sorted_odds)
+
+seikai_odds = boatdataset.ret_sanren_odds()
+odds_tr_, odds_vl_, odds_te_ = boatdata.split_data(seikai_odds)
+# %%
+n_ = 1
+nn = 0.03
+exp = pred*odds_vl
+mask = np.max(pred*(exp > n_),axis=1) > nn
+bet = np.abs(y - ((pred - np.max(pred,axis=1).reshape(-1,1))==0)*1)[mask]
+
+bt = (((pred - np.max(pred,axis=1).reshape(-1,1))==0)*1)[mask]
+kane = np.sum((np.sum(bet,axis=1)==0)*odds_vl_[mask])
+
+print(kane)
+print(kane/len(bet))
+# %%
+list((np.sum(bet,axis=1)==0)*odds_vl_[mask])
+# %%
+np.abs(y - ((pred - np.max(pred,axis=1).reshape(-1,1))==0)*1)
+# %%
+exp.shape
+# %%
+pred*(exp > n_)
+# %%
+pred = boatdataset.model.predict(boatdataset.tokenized_inputs)
+# %%
+np.save('datas/pred_sanren.npy', pred)
 # %%

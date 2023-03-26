@@ -329,41 +329,45 @@ class BoatDataset:
         return np.array(sanren_odds_lis)
 
     def ret_sorted_odds(self):
-        sort = self.ret_sorted(np.tile(np.array([1, 2, 3, 4, 5, 6]),
-                                       (len(self.ar_num), 1)))
+        if os.path.exists('datas/sorted_odds.npy'):
+            return np.load('datas/sorted_odds.npy')
+        else:
+            sort = self.ret_sorted(np.tile(np.array([1, 2, 3, 4, 5, 6]),
+                                        (len(self.ar_num), 1)))
 
-        dics = []
-        for i in tqdm(range(len(sort))):
-            temp_dic = {}
-            for j in range(6):
-                temp_dic[j+1] = sort[i][j]
-            dics.append(temp_dic)
+            dics = []
+            for i in tqdm(range(len(sort))):
+                temp_dic = {}
+                for j in range(6):
+                    temp_dic[j+1] = sort[i][j]
+                dics.append(temp_dic)
 
-        sanren_lis = []
-        for i in range(6):
-            for j in range(6):
-                for k in range(6):
-                    j1 = i == j
-                    j2 = j == k
-                    j3 = i == k
-                    if not (j1 or j2 or j3):
-                        sanren_lis.append([i+1, j+1, k+1])
+            sanren_lis = []
+            for i in range(6):
+                for j in range(6):
+                    for k in range(6):
+                        j1 = i == j
+                        j2 = j == k
+                        j3 = i == k
+                        if not (j1 or j2 or j3):
+                            sanren_lis.append([i+1, j+1, k+1])
 
-        ret_odds = []
-        for i in tqdm(range(len(self.sanren_odds))):
-            temp_odds = []
-            dic = dics[i]
-            odds = self.sanren_odds.iloc[i]
-            for j in range(120):
-                temp = sanren_lis[j]
-                temp_num = '{}{}{}'.format(dic[temp[0]], dic[temp[1]], dic[temp[2]])
-                temp_odds.append(odds['sanren_tan_{}'.format(temp_num)])
+            ret_odds = []
+            for i in tqdm(range(len(self.sanren_odds))):
+                temp_odds = []
+                dic = dics[i]
+                odds = self.sanren_odds.iloc[i]
+                for j in range(120):
+                    temp = sanren_lis[j]
+                    temp_num = '{}{}{}'.format(dic[temp[0]], dic[temp[1]], dic[temp[2]])
+                    temp_odds.append(odds['sanren_tan_{}'.format(temp_num)])
 
-            ret_odds.append(temp_odds)
+                ret_odds.append(temp_odds)
 
-        ret_odds = np.array(ret_odds)
+            ret_odds = np.array(ret_odds)
+            np.save('datas/sorted_odds.npy', ret_odds)
 
-        return ret_odds
+            return ret_odds
 
     def model_weights_random_init(self, init_ratio=0.0001):
         """
