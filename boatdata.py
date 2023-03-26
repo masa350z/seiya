@@ -52,7 +52,7 @@ def split_data(inp, tr_rate=0.6, val_rate=0.2):
 
 
 class BoatDataset:
-    def __init__(self, ret_grade=True, sorted=True):
+    def __init__(self, n, ret_grade=True, sorted=True):
         self.ret_grade, self.sorted = ret_grade, sorted
 
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
@@ -71,7 +71,7 @@ class BoatDataset:
         self.niren_dic = ret_niren_dic()
 
         # BERTに入力するデータ（レース環境＋レーサー）の単語配列
-        self.tokenized_inputs = self.make_tokenized_inputs()
+        self.tokenized_inputs = self.make_tokenized_inputs(n)
 
         sanren_tan_col = self.df.columns[79:79+120]
         # 正解の３連単オッズ
@@ -240,7 +240,14 @@ class BoatDataset:
                                           num5[:, :1], num6[:, :1]], axis=1)
         return racers_data
 
-    def make_tokenized_inputs(self):
+    def ret_saiyou_senshu(self, n, half_len):
+        counts = pd.DataFrame(self.ar_num[:half_len].reshape(-1)).value_counts()
+        counts = counts[:-int(len(counts)*n)]
+        saiyou = np.array(list(counts.index)).reshape(-1)
+
+        return np.array(['num{}'.format(i) for i in saiyou], dtype='str')
+
+    def make_tokenized_inputs(self, n):
         """
         レース環境とレーサーの単語配列を取得し
         トークナイザーでインデックス化して
@@ -251,7 +258,7 @@ class BoatDataset:
             fname += '_grade'
         if self.sorted:
             fname += '_sorted'
-        fname += '.npy'
+        fname += '_{}.npy'.format(n)
 
         if os.path.exists(fname):
             ret = np.load(fname)
@@ -271,12 +278,15 @@ class BoatDataset:
             fdf = pd.DataFrame(field_data[:half_len].reshape(-1))
             fdf = np.array(fdf[~fdf.duplicated()]).reshape(-1).astype('str')
 
-            rdf = pd.DataFrame(racers_data[:half_len].reshape(-1))
-            rdf = np.array(rdf[~rdf.duplicated()]).reshape(-1).astype('str')
+            # rdf = pd.DataFrame(racers_data[:half_len].reshape(-1))
+            # rdf = np.array(rdf[~rdf.duplicated()]).reshape(-1).astype('str')
+            rdf = self.ret_saiyou_senshu(n, half_len)
 
             n_tokens = np.concatenate([fdf, rdf])
 
             self.tokenizer.add_tokens(list(n_tokens), special_tokens=True)
+            self.tokenizer.add_tokens(['grade_A1', 'grade_A2', 'grade_B1', 'grade_B2'],
+                                      special_tokens=True)
 
             inp_data = np.concatenate(
                 [field_data, seps, racers_data],
@@ -333,7 +343,7 @@ class BoatDataset:
             return np.load('datas/sorted_odds.npy')
         else:
             sort = self.ret_sorted(np.tile(np.array([1, 2, 3, 4, 5, 6]),
-                                        (len(self.ar_num), 1)))
+                                           (len(self.ar_num), 1)))
 
             dics = []
             for i in tqdm(range(len(sort))):
@@ -388,50 +398,8 @@ class BoatDataset:
         self.model.set_weights(weights)
 
 
-class DatasetLabelSanren120(BoatDataset):
-    """
-    ラベルが3連単の組み合わせ120通りのデータセット
-    (x, 120)次元のラベル
-    """
-    def __init__(self, ret_grade=True, sorted=True):
-        super().__init__(ret_grade, sorted)
-
-
-class DatasetLabelNiren120(BoatDataset):
-    """
-    ラベルが2連単の組み合わせ30通りのデータセット
-    (x, 30)次元のラベル
-    """
-    def __init__(self, ret_grade=True, sorted=True):
-        super().__init__(ret_grade, sorted)
-
-
-class DatasetLabelNth(BoatDataset):
-    """
-    ラベルがn着が何号艇（何コース）かのデータセット
-    (x, 6)次元のラベル
-    """
-    def __init__(self, nth, ret_grade=True, sorted=True):
-        super().__init__(ret_grade, sorted)
-        self.nth = nth
-
-
-class DatasetLabel_1_3th_OneHot(BoatDataset):
-    """
-    ラベルが「1着が誰か、2着、3着、、」のOne-Hot
-    (x, 3, 6)次元のラベル
-    """
-    def __init__(self, ret_grade=True, sorted=True):
-        super().__init__(ret_grade, sorted)
-
-
-class DatasetLabel_1_6num_OneHot(BoatDataset):
-    """
-    ラベルが「1号艇（1コース）は何着か、2,3,,,6」のOne-Hot
-    (x, 6, 6)次元のラベル
-    """
-    def __init__(self, ret_grade=True, sorted=True):
-        super().__init__(ret_grade, sorted)
-
-
-# %%
+if __name__ == '__main__':
+    bt = BoatDataset(0.1)
+    bt = BoatDataset(0.2)
+    bt = BoatDataset(0.3)
+    bt = BoatDataset(0.5)

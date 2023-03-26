@@ -146,7 +146,7 @@ class Odds_Boat_Bert(Model):
         x = self.concat_layer(conc)
         x = self.dense01(x)
         x = self.dense02(x)
-        #attention = self.attention(conc)
+        # attention = self.attention(conc)
 
         x = self.output_layer(x)
 
@@ -155,7 +155,7 @@ class Odds_Boat_Bert(Model):
 
 # %%
 bt = SanrenOdds()
-bt.set_label(0.18)
+bt.set_label(0.2)
 bt.model = Odds_Boat_Bert()
 bt.set_dataset(batch_size=120)
 bt.model_compile(learning_rate=2e-5)
