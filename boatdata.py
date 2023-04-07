@@ -52,7 +52,7 @@ def split_data(inp, tr_rate=0.6, val_rate=0.2):
 
 
 class BoatDataset:
-    def __init__(self, n, ret_grade=True, sorted=True):
+    def __init__(self, ret_grade=True, sorted=True):
         self.ret_grade, self.sorted = ret_grade, sorted
 
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
@@ -71,7 +71,7 @@ class BoatDataset:
         self.niren_dic = ret_niren_dic()
 
         # BERTに入力するデータ（レース環境＋レーサー）の単語配列
-        self.tokenized_inputs = self.make_tokenized_inputs(n)
+        self.tokenized_inputs = self.make_tokenized_inputs(0.2)
 
         sanren_tan_col = self.df.columns[79:79+120]
         # 正解の３連単オッズ
@@ -245,7 +245,7 @@ class BoatDataset:
         counts = counts[:-int(len(counts)*n)]
         saiyou = np.array(list(counts.index)).reshape(-1)
 
-        return np.array(['num{}'.format(i) for i in saiyou], dtype='str')
+        return np.array(['num_{}'.format(i) for i in saiyou], dtype='str')
 
     def make_tokenized_inputs(self, n):
         """
@@ -273,7 +273,7 @@ class BoatDataset:
 
             racers_data = self.ret_racers_data()
 
-            half_len = int(len(field_data)*0.5)
+            half_len = int(len(field_data)*0.6)
 
             fdf = pd.DataFrame(field_data[:half_len].reshape(-1))
             fdf = np.array(fdf[~fdf.duplicated()]).reshape(-1).astype('str')
@@ -282,9 +282,8 @@ class BoatDataset:
             # rdf = np.array(rdf[~rdf.duplicated()]).reshape(-1).astype('str')
             rdf = self.ret_saiyou_senshu(n, half_len)
 
-            n_tokens = np.concatenate([fdf, rdf])
-
-            self.tokenizer.add_tokens(list(n_tokens), special_tokens=True)
+            self.tokenizer.add_tokens(list(fdf), special_tokens=True)
+            self.tokenizer.add_tokens(list(rdf), special_tokens=True)
             self.tokenizer.add_tokens(['grade_A1', 'grade_A2', 'grade_B1', 'grade_B2'],
                                       special_tokens=True)
 

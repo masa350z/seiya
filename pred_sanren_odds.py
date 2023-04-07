@@ -47,10 +47,11 @@ class SanrenOdds(boatdata.BoatDataset):
 
         self.label = label
 
-    def set_dataset(self, batch_size):
-        self.x_tr, self.x_vl, self.x_te = boatdata.split_data(self.tokenized_inputs)
-        self.exp_tr, self.exp_vl, self.exp_te = boatdata.split_data(self.exp)
-        self.y_tr, self.y_vl, self.y_te = boatdata.split_data(self.label)
+    def set_dataset_exp(self, batch_size, ana=0):
+        mask = np.min(self.label, axis=1) < -ana
+        self.x_tr, self.x_vl, self.x_te = boatdata.split_data(self.tokenized_inputs[mask])
+        self.exp_tr, self.exp_vl, self.exp_te = boatdata.split_data(self.exp[mask])
+        self.y_tr, self.y_vl, self.y_te = boatdata.split_data(self.label[mask])
 
         tr = tf.data.Dataset.from_tensor_slices((self.x_tr, self.exp_tr))
         tr_ = tf.data.Dataset.from_tensor_slices(self.y_tr)
@@ -61,6 +62,43 @@ class SanrenOdds(boatdata.BoatDataset):
         self.val = tf.data.Dataset.zip((val, val_)).batch(batch_size)
 
         te = tf.data.Dataset.from_tensor_slices((self.x_te, self.exp_te))
+        te_ = tf.data.Dataset.from_tensor_slices(self.y_te)
+        self.te = tf.data.Dataset.zip((te, te_)).batch(batch_size)
+
+    def set_dataset_odds(self, batch_size, ana=0):
+        mask = np.min(self.label, axis=1) < -ana
+        self.x_tr, self.x_vl, self.x_te = boatdata.split_data(self.tokenized_inputs[mask])
+        self.odds_tr, self.odds_vl, self.odds_te = boatdata.split_data(self.odds[mask])
+        self.y_tr, self.y_vl, self.y_te = boatdata.split_data(self.label[mask])
+
+        tr = tf.data.Dataset.from_tensor_slices((self.x_tr, self.odds_tr))
+        tr_ = tf.data.Dataset.from_tensor_slices(self.y_tr)
+        self.tr = tf.data.Dataset.zip((tr, tr_)).batch(batch_size)
+
+        val = tf.data.Dataset.from_tensor_slices((self.x_vl, self.odds_vl))
+        val_ = tf.data.Dataset.from_tensor_slices(self.y_vl)
+        self.val = tf.data.Dataset.zip((val, val_)).batch(batch_size)
+
+        te = tf.data.Dataset.from_tensor_slices((self.x_te, self.odds_te))
+        te_ = tf.data.Dataset.from_tensor_slices(self.y_te)
+        self.te = tf.data.Dataset.zip((te, te_)).batch(batch_size)
+
+    def set_dataset_odds_pred(self, batch_size, ana=0):
+        mask = np.min(self.label, axis=1) < -ana
+        self.x_tr, self.x_vl, self.x_te = boatdata.split_data(self.tokenized_inputs[mask])
+        self.odds_tr, self.odds_vl, self.odds_te = boatdata.split_data(self.odds[mask])
+        self.pred_tr, self.pred_vl, self.pred_te = boatdata.split_data(self.pred_sanren[mask])
+        self.y_tr, self.y_vl, self.y_te = boatdata.split_data(self.label[mask])
+
+        tr = tf.data.Dataset.from_tensor_slices((self.x_tr, self.odds_tr, self.pred_tr))
+        tr_ = tf.data.Dataset.from_tensor_slices(self.y_tr)
+        self.tr = tf.data.Dataset.zip((tr, tr_)).batch(batch_size)
+
+        val = tf.data.Dataset.from_tensor_slices((self.x_vl, self.odds_vl, self.pred_vl))
+        val_ = tf.data.Dataset.from_tensor_slices(self.y_vl)
+        self.val = tf.data.Dataset.zip((val, val_)).batch(batch_size)
+
+        te = tf.data.Dataset.from_tensor_slices((self.x_te, self.odds_te, self.pred_te))
         te_ = tf.data.Dataset.from_tensor_slices(self.y_te)
         self.te = tf.data.Dataset.zip((te, te_)).batch(batch_size)
 
@@ -78,13 +116,11 @@ class SanrenOdds(boatdata.BoatDataset):
         k_freeze = 3
         freeze = k_freeze
 
-        val_loss = self.model.evaluate(self.val)
-        print(f"Initial valid loss: {val_loss}")
-
         # 学習を開始する
         for epoch in range(epochs):
             self.model.fit(self.tr)
-            val_loss = self.model.evaluate(self.val)
+            pred_val = self.model.predict(self.val)
+            val_loss = np.sum((pred_val[:,:-1]*self.y_vl[:,:-1]))
 
             # valid lossが減少した場合、重みを保存
             if val_loss < best_val_loss:
@@ -139,14 +175,21 @@ class Odds_Boat_Bert(Model):
         self.dense02 = Dense(512, activation='relu')
         self.output_layer = Dense(121, activation='softmax')
 
+        self.odds_layer01 = Dense(120, activation='relu')
+        self.pred_layer01 = Dense(120, activation='relu')
+
     def call(self, inputs):
-        x, exp = inputs
+        x, odds, pred = inputs
         x = self.bert_model(x)[1]
-        conc = concatenate([x, exp])
+        
+        odds = self.odds_layer01(odds)
+        pred = self.pred_layer01(pred)
+
+        
+        conc = concatenate([x, odds, pred])
         x = self.concat_layer(conc)
         x = self.dense01(x)
         x = self.dense02(x)
-        # attention = self.attention(conc)
 
         x = self.output_layer(x)
 
@@ -155,14 +198,15 @@ class Odds_Boat_Bert(Model):
 
 # %%
 bt = SanrenOdds()
-bt.set_label(0.2)
+bt.set_label(0)
 bt.model = Odds_Boat_Bert()
-bt.set_dataset(batch_size=120)
-bt.model_compile(learning_rate=2e-5)
+bt.set_dataset_odds_pred(batch_size=120, ana=0)
+bt.model_compile(learning_rate=1e-2)
 # %%
 bt.start_training(epochs=100, weight_name='datas/sanren_odds/bert_sanren120')
 # %%
-bt.model.load_weights('datas/sanren_odds/bert_sanren120')
+bt.set_dataset(batch_size=120, ana=0)
+bt.start_training(epochs=100, weight_name='datas/sanren_odds/bert_sanren120')
 # %%
-bt.model(bt.tr)
+#bt.model.load_weights('datas/sanren_odds/bert_sanren120')
 # %%
