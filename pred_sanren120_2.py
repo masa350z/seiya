@@ -1,6 +1,6 @@
 # %%
 from transformers import TFBertModel
-from keras.layers import Dense, concatenate
+from keras.layers import Dense, Flatten ,concatenate
 from keras.models import Model
 import tensorflow as tf
 
@@ -9,28 +9,25 @@ import numpy as np
 import boatdata
 
 
-class Sanren6_6(boatdata.BoatDataset):
+class Sanren120(boatdata.BoatDataset):
     def __init__(self, ret_grade=True, sorted=True):
         super().__init__(ret_grade, sorted)
         self.set_label()
 
     def set_label(self):
-        sorted_th = self.ret_sorted_th()
+        label = np.zeros((len(self.ar_num), 120))
+        th_ar = self.ret_sorted_th()[:, :3]
 
-        data_y = []
-        arr = np.array([0, 1, 2, 3, 4, 5])
-        for i in range(len(sorted_th)):
-            temp = sorted_th[i]
+        for i in tqdm(range(len(th_ar))):
+            temp_ar = th_ar[i]
 
-            co_to_th = [arr[temp == j+1][0] for j in range(6)]
+            sanren = ''
+            for nm in temp_ar:
+                sanren += str(nm)
 
-            y_ = np.zeros((6,6))
-            for j in range(6):
-                y_[j][co_to_th[j]] = 1
-            
-            data_y.append(y_)
+            label[i][self.sanren_dic[sanren]] = 1
 
-        self.label = np.array(data_y)
+        self.label = label
 
     def set_dataset(self, batch_size):
         self.x_train, self.x_valid, self.x_test = boatdata.split_data(self.tokenized_inputs)
@@ -99,21 +96,6 @@ class Sanren6_6(boatdata.BoatDataset):
 
             freeze = freeze - 1 if freeze > 0 else freeze
 
-            pred = self.model.predict(self.valid)
-            y = self.y_valid
-
-            mx = np.expand_dims(np.max(pred,axis=2), 2)
-
-            win = ((pred - mx)==0)*y
-            win = np.sum(win,axis=2)
-
-            print(np.sum(win[:,0])/len(win))
-            print(np.sum(win[:,1])/len(win))
-            print(np.sum(win[:,2])/len(win))
-            print(np.sum(win[:,3])/len(win))
-            print(np.sum(win[:,4])/len(win))
-            print(np.sum(win[:,5])/len(win))
-
             print('')
 
 
@@ -123,82 +105,43 @@ class RNN_Boat_Bert(Model):
 
         self.bert_model = TFBertModel.from_pretrained(bert_model)
 
-        self.dense01 = Dense(512, activation='relu')
-        self.dense02 = Dense(512, activation='relu')
-        self.dense03 = Dense(512, activation='relu')
-        self.dense04 = Dense(512, activation='relu')
-        self.dense05 = Dense(512, activation='relu')
-        self.dense06 = Dense(512, activation='relu')
+        self.dense01 = Dense(256, activation='relu')
+        self.conc01 = Dense(1024, activation='relu')
 
-        self.dense01_ = Dense(128, activation='relu')
-        self.dense02_ = Dense(128, activation='relu')
-        self.dense03_ = Dense(128, activation='relu')
-        self.dense04_ = Dense(128, activation='relu')
-        self.dense05_ = Dense(128, activation='relu')
-        self.dense06_ = Dense(128, activation='relu')
-
-        self.conc01 = Dense(256, activation='relu')
-        self.conc02 = Dense(256, activation='relu')
-        self.conc03 = Dense(256, activation='relu')
-        self.conc04 = Dense(256, activation='relu')
-        self.conc05 = Dense(256, activation='relu')
-        self.conc06 = Dense(256, activation='relu')
-
-        self.output_01 = Dense(6, activation='softmax')
-        self.output_02 = Dense(6, activation='softmax')
-        self.output_03 = Dense(6, activation='softmax')
-        self.output_04 = Dense(6, activation='softmax')
-        self.output_05 = Dense(6, activation='softmax')
-        self.output_06 = Dense(6, activation='softmax')
+        self.output_01 = Dense(120, activation='softmax')
 
     def call(self, inputs):
         x, pre = inputs
-        x= self.bert_model(x)
+        x= self.bert_model(x)[1]
 
-        x1 = self.dense01(x[0][:,9])
-        pre1 = self.dense01_(pre[:,0])
-        x1 = self.conc01(concatenate([x1, pre1]))
+        pre = self.dense01(tf.reshape(pre, (-1, 6*8)))
+
+        x1 = self.conc01(concatenate([x, pre]))
         x1 = self.output_01(x1)
 
-        x2 = self.dense02(x[0][:,11])
-        pre2 = self.dense02_(pre[:,1])
-        x2 = self.conc02(concatenate([x2, pre2]))
-        x2 = self.output_02(x2)
+        return x1
+    
+    def ext_hidden(self, inputs):
+        x, pre = inputs
+        x= self.bert_model(x)[1]
 
-        x3 = self.dense03(x[0][:,13])
-        pre3 = self.dense03_(pre[:,2])
-        x3 = self.conc03(concatenate([x3, pre3]))
-        x3 = self.output_03(x3)
+        pre = self.dense01(tf.reshape(pre, (-1, 6*8)))
 
-        x4 = self.dense04(x[0][:,15])
-        pre4 = self.dense04_(pre[:,3])
-        x4 = self.conc04(concatenate([x4, pre4]))
-        x4 = self.output_04(x4)
+        x1 = self.conc01(concatenate([x, pre]))
 
-        x5 = self.dense05(x[0][:,17])
-        pre5 = self.dense05_(pre[:,4])
-        x5 = self.conc05(concatenate([x5, pre5]))
-        x5 = self.output_05(x5)
-
-        x6 = self.dense06(x[0][:,19])
-        pre6 = self.dense06_(pre[:,5])
-        x6 = self.conc06(concatenate([x6, pre6]))
-        x6 = self.output_06(x6)
-
-        return tf.stack([x1, x2, x3, x4, x5, x6], axis=1)
-
+        return x1    
 
 # %%
-boatdataset = Sanren6_6()
+boatdataset = Sanren120()
 boatdataset.set_dataset(batch_size=120)
 # %%
 boatdataset.model = RNN_Boat_Bert()
 boatdataset.set_dataset(batch_size=120)
 boatdataset.model_compile(learning_rate=2e-5)
 # %%
-boatdataset.start_training(epochs=100, weight_name='datas/best_sanren1_6')
+boatdataset.start_training(epochs=100, weight_name='datas/best_sanren120_2')
 # %%
-boatdataset.model.load_weights('datas/best_sanren1_6')
+boatdataset.model.load_weights('datas/best_sanren120_2')
 # %%
 pred = boatdataset.model.predict(boatdataset.valid)
 y = boatdataset.y_valid

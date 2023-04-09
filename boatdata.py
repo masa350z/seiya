@@ -72,6 +72,7 @@ class BoatDataset:
 
         # BERTに入力するデータ（レース環境＋レーサー）の単語配列
         self.tokenized_inputs = self.make_tokenized_inputs(0.2)
+        self.preinfo_inputs = self.make_preinfo_inputs()
 
         sanren_tan_col = self.df.columns[79:79+120]
         # 正解の３連単オッズ
@@ -310,6 +311,40 @@ class BoatDataset:
 
             return ret
 
+    def make_preinfo_inputs(self):
+        senshu01 = np.array(self.df[['zenkoku_shoritshu_1','zenkoku_nirenritshu_1','zenkoku_sanrenritshu_1',
+                                     'tochi_shoritshu_1','tochi_nirenritshu_1','tochi_sanrenritshu_1',
+                                     'tenji_time_1','tenji_start_time_1']])
+        senshu01[:,7][senshu01[:,7] == 1] = 0
+        senshu01 = np.expand_dims(senshu01, 1)
+        senshu02 = np.array(self.df[['zenkoku_shoritshu_2','zenkoku_nirenritshu_2','zenkoku_sanrenritshu_2',
+                                     'tochi_shoritshu_2','tochi_nirenritshu_2','tochi_sanrenritshu_2',
+                                     'tenji_time_2','tenji_start_time_2']])
+        senshu02[:,7][senshu02[:,7] == 1] = 0
+        senshu02 = np.expand_dims(senshu02, 1)
+        senshu03 = np.array(self.df[['zenkoku_shoritshu_3','zenkoku_nirenritshu_3','zenkoku_sanrenritshu_3',
+                                     'tochi_shoritshu_3','tochi_nirenritshu_3','tochi_sanrenritshu_3',
+                                     'tenji_time_3','tenji_start_time_3']])
+        senshu03[:,7][senshu03[:,7] == 1] = 0
+        senshu03 = np.expand_dims(senshu03, 1)
+        senshu04 = np.array(self.df[['zenkoku_shoritshu_4','zenkoku_nirenritshu_4','zenkoku_sanrenritshu_4',
+                                     'tochi_shoritshu_4','tochi_nirenritshu_4','tochi_sanrenritshu_4',
+                                     'tenji_time_4','tenji_start_time_4']])
+        senshu04[:,7][senshu04[:,7] == 1] = 0
+        senshu04 = np.expand_dims(senshu04, 1)
+        senshu05 = np.array(self.df[['zenkoku_shoritshu_5','zenkoku_nirenritshu_5','zenkoku_sanrenritshu_5',
+                                     'tochi_shoritshu_5','tochi_nirenritshu_5','tochi_sanrenritshu_5',
+                                     'tenji_time_5','tenji_start_time_5']])
+        senshu05[:,7][senshu05[:,7] == 1] = 0
+        senshu05 = np.expand_dims(senshu05, 1)
+        senshu06 = np.array(self.df[['zenkoku_shoritshu_6','zenkoku_nirenritshu_6','zenkoku_sanrenritshu_6',
+                                     'tochi_shoritshu_6','tochi_nirenritshu_6','tochi_sanrenritshu_6',
+                                     'tenji_time_6','tenji_start_time_6']])
+        senshu06[:,7][senshu06[:,7] == 1] = 0
+        senshu06 = np.expand_dims(senshu06, 1)
+
+        self.pre_info = self.ret_sorted(np.concatenate([senshu01, senshu02, senshu03, senshu04, senshu05, senshu06], axis=1))
+
     def ret_sorted_th(self):
         sort = self.ret_sorted(np.tile(
             np.array([1, 2, 3, 4, 5, 6]),
@@ -402,3 +437,5 @@ if __name__ == '__main__':
     bt = BoatDataset(0.2)
     bt = BoatDataset(0.3)
     bt = BoatDataset(0.5)
+
+# %%

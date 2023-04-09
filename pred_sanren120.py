@@ -1,5 +1,5 @@
 # %%
-from transformers import TFBertModel, TFAlbertModel
+from transformers import TFBertModel, TFAlbertModel, TFGPT2Model
 from keras.layers import Dense
 from keras.models import Model
 import tensorflow as tf
@@ -34,7 +34,10 @@ class Sanren120(boatdata.BoatDataset):
         self.label = label
 
     def set_dataset(self, batch_size):
+        mask = np.array([False, False, False, False, False, False, False, False,
+                         True, True, False, True, False, True, False, True, False, True, False, True, False, True])
         self.x_train, self.x_valid, self.x_test = boatdata.split_data(self.tokenized_inputs)
+        #self.x_train, self.x_valid, self.x_test = boatdata.split_data(self.tokenized_inputs[:,mask])
         self.y_train, self.y_valid, self.y_test = boatdata.split_data(self.label)
 
         self.train = tf.data.Dataset.from_tensor_slices((self.x_train, self.y_train)).batch(batch_size)
@@ -119,14 +122,33 @@ class Simple_Boat_Albert(Model):
 
     def call(self, inputs):
         x = self.albert_model(inputs)
-        x = self.output_layer(x[0][:, 0, :])
+        #x = self.output_layer(x[0][:, 0, :])
+        x = self.output_layer(x[1])
+
+        return x
+
+class Simple_GPT(Model):
+    """
+    ALBERTの出力をそのまま
+    （クラス数）次元のカテゴライズレイヤーに渡すモデル
+    """
+    def __init__(self, num_classes, gpt_model='gpt2'):
+        super(Simple_GPT, self).__init__(name='gpt2')
+
+        self.albert_model = TFGPT2Model.from_pretrained(gpt_model)
+        self.output_layer = Dense(num_classes, activation='softmax')
+
+    def call(self, inputs):
+        x = self.albert_model(inputs)
+        #x = self.output_layer(x[0][:, 0, :])
+        x = self.output_layer(x[0][:, -1, :])
 
         return x
 
 
 # %%
 boatdataset = Sanren120()
-boatdataset.model = Simple_Boat_Bert(120, bert_model='bert-base-uncased')
+boatdataset.model = Simple_GPT(120)
 boatdataset.set_dataset(batch_size=120)
 boatdataset.model_compile(learning_rate=2e-5)
 # %%
