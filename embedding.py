@@ -1,5 +1,4 @@
 # %%
-from transformers import TFBertModel, TFAlbertModel, TFGPT2Model
 from keras.layers import Dense, Embedding, concatenate
 from keras.models import Model
 import tensorflow as tf
@@ -36,17 +35,24 @@ class Sanren120(boatdata.BoatDataset):
     def set_dataset(self, batch_size):
         mask = np.array([False, False, False, False, False, False, False, False,
                          False, True, True, True, True, True, True, True, True, True, True, True, True, False])
-        inp = self.tokenized_inputs[:,mask]
+        inp = self.tokenized_inputs[:, mask]
 
         mn = np.min(np.where(inp == 100, 100000, inp))
 
         inp = inp - mn + 1
         inp = np.where(inp == -11500, 0, inp)
 
-        pre_mask = np.array([True, True, True,  False, False, False,  True,  True])
-        pre_info = self.pre_info[:,:,pre_mask]
+        field_mask = np.array([False, True, True, True, True, True, True, True,
+                               False, False, False, False, False, False, False, False, False, False, False, False, False, False])
+        inp_fe = self.tokenized_inputs[:, field_mask]
+        mn = np.min(np.where(inp_fe == 100, 100000, inp_fe))
+        inp_fe = inp_fe - mn
+
+        pre_mask = np.array([True, True, True,  True, True, True,  True,  True])
+        pre_info = self.pre_info[:, :, pre_mask]
 
         self.x_train, self.x_valid, self.x_test = boatdata.split_data(inp)
+        self.field_train, self.field_valid, self.field_test = boatdata.split_data(inp_fe)
         self.pre_train, self.pre_valid, self.pre_test = boatdata.split_data(pre_info)
         self.y_train, self.y_valid, self.y_test = boatdata.split_data(self.label)
         """
@@ -55,21 +61,24 @@ class Sanren120(boatdata.BoatDataset):
         self.test = tf.data.Dataset.from_tensor_slices((self.x_test, self.y_test)).batch(batch_size)
         """
         x = tf.data.Dataset.from_tensor_slices((self.x_train)).batch(batch_size)
+        field = tf.data.Dataset.from_tensor_slices((self.field_train)).batch(batch_size)
         pre = tf.data.Dataset.from_tensor_slices((self.pre_train)).batch(batch_size)
         train_y = tf.data.Dataset.from_tensor_slices((self.y_train)).batch(batch_size)
-        self.train = tf.data.Dataset.zip((x, pre))
+        self.train = tf.data.Dataset.zip((x, field, pre))
         self.train = tf.data.Dataset.zip((self.train, train_y))
 
         x = tf.data.Dataset.from_tensor_slices((self.x_valid)).batch(batch_size)
+        field = tf.data.Dataset.from_tensor_slices((self.field_valid)).batch(batch_size)
         pre = tf.data.Dataset.from_tensor_slices((self.pre_valid)).batch(batch_size)
         valid_y = tf.data.Dataset.from_tensor_slices((self.y_valid)).batch(batch_size)
-        self.valid = tf.data.Dataset.zip((x, pre))
+        self.valid = tf.data.Dataset.zip((x, field, pre))
         self.valid = tf.data.Dataset.zip((self.valid, valid_y))
         
         x = tf.data.Dataset.from_tensor_slices((self.x_test)).batch(batch_size)
+        field = tf.data.Dataset.from_tensor_slices((self.field_test)).batch(batch_size)
         pre = tf.data.Dataset.from_tensor_slices((self.pre_test)).batch(batch_size)
         test_y = tf.data.Dataset.from_tensor_slices((self.y_test)).batch(batch_size)
-        self.test = tf.data.Dataset.zip((x, pre))
+        self.test = tf.data.Dataset.zip((x, field, pre))
         self.test = tf.data.Dataset.zip((self.test, test_y))
 
 
@@ -125,34 +134,35 @@ bt= Sanren120()
 class Boat_NLP(Model):
     def __init__(self):
         super(Boat_NLP, self).__init__(name='boat_nlp')
-        self.vect_len = 2048
+        self.vect_len = 1024*5
 
         self.embedding = Embedding(1382, self.vect_len)
+        self.field_embedding = Embedding(1078, self.vect_len)
 
-        self.senshu01 = Dense(1024, activation='relu')
-        self.senshu02 = Dense(1024, activation='relu')
-        self.senshu03 = Dense(1024, activation='relu')
-        self.senshu04 = Dense(1024, activation='relu')
-        self.senshu05 = Dense(1024, activation='relu')
-        self.senshu06 = Dense(1024, activation='relu')
+        self.senshu01 = Dense(1024*2, activation='relu')
+        self.senshu02 = Dense(1024*2, activation='relu')
+        self.senshu03 = Dense(1024*2, activation='relu')
+        self.senshu04 = Dense(1024*2, activation='relu')
+        self.senshu05 = Dense(1024*2, activation='relu')
+        self.senshu06 = Dense(1024*2, activation='relu')
 
-        self.layer01 = Dense(1024*5, activation='relu')
-        self.layer02 = Dense(512*5, activation='relu')
-        self.layer03 = Dense(256*5, activation='relu')
-        self.layer04 = Dense(128*5, activation='relu')
+        self.pre01 = Dense(256, activation='relu')
+        self.pre02 = Dense(256, activation='relu')
+        self.pre03 = Dense(256, activation='relu')
+        self.pre04 = Dense(256, activation='relu')
+        self.pre05 = Dense(256, activation='relu')
+        self.pre06 = Dense(256, activation='relu')
 
-        self.pre01 = Dense(1024, activation='relu')
-        self.pre02 = Dense(1024, activation='relu')
-        self.pre03 = Dense(1024, activation='relu')
-        self.pre04 = Dense(1024, activation='relu')
-        self.pre05 = Dense(1024, activation='relu')
-        self.pre06 = Dense(1024, activation='relu')
+        self.layer01 = Dense(1024, activation='relu')
+        self.layer02 = Dense(512, activation='relu')
 
         self.output_layer = Dense(120, activation='softmax')
 
     def call(self, inputs):
-        x, pre = inputs
+        x, field, pre = inputs
+
         x = self.embedding(x)
+        field = self.field_embedding(field)
 
         pre01 = self.pre01(pre[:, 0])
         pre02 = self.pre02(pre[:, 1])
@@ -168,22 +178,17 @@ class Boat_NLP(Model):
         x05 = self.senshu05(concatenate([tf.reshape(x[:, 8:10], (-1, 2*self.vect_len)), pre05]))
         x06 = self.senshu06(concatenate([tf.reshape(x[:, 10:12], (-1, 2*self.vect_len)), pre06]))
 
-        x = self.layer01(concatenate([x01, x02, x03, x04, x05, x06]))
+        x = self.layer01(concatenate([tf.reshape(field, (-1, 7*self.vect_len)),
+                                      x01, x02, x03, x04, x05, x06]))
         x = self.layer02(x)
-        x = self.layer03(x)
-        x = self.layer04(x)
         x = self.output_layer(x)
 
         return x
 
 # %%
 bt.model = Boat_NLP()
-bt.set_dataset(batch_size=12)
-bt.model_compile(learning_rate=2e-5)
+bt.set_dataset(batch_size=120)
+bt.model_compile()
 # %%
-bt.start_training(epochs=100, weight_name='datas/sanren120/boat_nlp')
-# %%
-bt.pre_info[0][0]
-# %%
-
+bt.start_training(epochs=100, weight_name='datas/sanren120/boat_nlp', k_freeze=1)
 # %%
