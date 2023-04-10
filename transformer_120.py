@@ -188,13 +188,14 @@ class Encoder(layers.Layer):
 
 
 class NoEmbeddingEncoder(layers.Layer):
-    def __init__(self, num_layers, d_model, num_heads, dff, rate=0.1):
+    def __init__(self, seq_len, num_layers, d_model, num_heads, dff, rate=0.1):
         super(NoEmbeddingEncoder, self).__init__()
+        self.seq_len = seq_len
 
         self.d_model = d_model
         self.num_layers = num_layers
 
-        self.pos_encoding = positional_encoding(6, self.d_model)
+        self.pos_encoding = positional_encoding(self.seq_len, self.d_model)
 
         self.enc_layers = [EncoderLayer(d_model, num_heads, dff, rate)
                            for _ in range(num_layers)]
@@ -202,11 +203,8 @@ class NoEmbeddingEncoder(layers.Layer):
         self.dropout = layers.Dropout(rate)
 
     def call(self, x, training, mask):
-
-        seq_len = 6
-
         x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
-        x += self.pos_encoding[:, :seq_len, :]
+        x += self.pos_encoding[:, :self.seq_len, :]
 
         x = self.dropout(x, training=training)
 
@@ -238,10 +236,10 @@ class BoatEncoder(tf.keras.Model):
 
 
 class PreinfoEncoder(tf.keras.Model):
-    def __init__(self, num_layers, d_model, num_heads, dff, output_size):
+    def __init__(self, num_layers, num_heads, dff, output_size):
         super(PreinfoEncoder, self).__init__()
 
-        self.encoder = NoEmbeddingEncoder(num_layers, d_model, num_heads, dff)
+        self.encoder = NoEmbeddingEncoder(6, num_layers, 8, num_heads, dff)
 
         self.final_layer = layers.Dense(output_size)
 
@@ -256,14 +254,33 @@ class PreinfoEncoder(tf.keras.Model):
         return final_output
 
 
+class OddsEncoder(tf.keras.Model):
+    def __init__(self, num_layers, num_heads, dff, output_size):
+        super(OddsEncoder, self).__init__()
+
+        self.encoder = NoEmbeddingEncoder(1, num_layers, 120, num_heads, dff)
+
+        self.final_layer = layers.Dense(output_size)
+
+    def call(self, inp, training=False, enc_padding_mask=None):
+
+        # (batch_size, inp_seq_len, d_model)
+        enc_output = self.encoder(inp, training, enc_padding_mask)
+
+        # (batch_size, tar_seq_len, target_vocab_size)
+        final_output = self.final_layer(enc_output)
+
+        return final_output
+
 # %%
 class Sanren120(boatdata.BoatDataset):
     """
     ラベルが3連単の組み合わせ120通りのデータセット
     (x, 120)次元のラベル
     """
-    def __init__(self, ret_grade=True, sorted=True):
-        super().__init__(ret_grade, sorted)
+    def __init__(self, n, ret_grade=True, sorted=True):
+        super().__init__(n, ret_grade, sorted)
+        self.odds = self.ret_sorted_odds()
         self.set_label()
 
     def set_label(self):
@@ -303,27 +320,31 @@ class Sanren120(boatdata.BoatDataset):
         self.x_train, self.x_valid, self.x_test = boatdata.split_data(inp)
         self.field_train, self.field_valid, self.field_test = boatdata.split_data(inp_fe)
         self.pre_train, self.pre_valid, self.pre_test = boatdata.split_data(pre_info)
+        self.odds_train, self.odds_valid, self.odds_test = boatdata.split_data(self.odds)
         self.y_train, self.y_valid, self.y_test = boatdata.split_data(self.label)
 
         x = tf.data.Dataset.from_tensor_slices((self.x_train)).batch(batch_size)
         field = tf.data.Dataset.from_tensor_slices((self.field_train)).batch(batch_size)
         pre = tf.data.Dataset.from_tensor_slices((self.pre_train)).batch(batch_size)
+        odds = tf.data.Dataset.from_tensor_slices((self.odds_train)).batch(batch_size)
         train_y = tf.data.Dataset.from_tensor_slices((self.y_train)).batch(batch_size)
-        self.train = tf.data.Dataset.zip((x, field, pre))
+        self.train = tf.data.Dataset.zip((x, field, pre, odds))
         self.train = tf.data.Dataset.zip((self.train, train_y))
 
         x = tf.data.Dataset.from_tensor_slices((self.x_valid)).batch(batch_size)
         field = tf.data.Dataset.from_tensor_slices((self.field_valid)).batch(batch_size)
         pre = tf.data.Dataset.from_tensor_slices((self.pre_valid)).batch(batch_size)
+        odds = tf.data.Dataset.from_tensor_slices((self.odds_valid)).batch(batch_size)
         valid_y = tf.data.Dataset.from_tensor_slices((self.y_valid)).batch(batch_size)
-        self.valid = tf.data.Dataset.zip((x, field, pre))
+        self.valid = tf.data.Dataset.zip((x, field, pre, odds))
         self.valid = tf.data.Dataset.zip((self.valid, valid_y))
 
         x = tf.data.Dataset.from_tensor_slices((self.x_test)).batch(batch_size)
         field = tf.data.Dataset.from_tensor_slices((self.field_test)).batch(batch_size)
         pre = tf.data.Dataset.from_tensor_slices((self.pre_test)).batch(batch_size)
+        odds = tf.data.Dataset.from_tensor_slices((self.odds_test)).batch(batch_size)
         test_y = tf.data.Dataset.from_tensor_slices((self.y_test)).batch(batch_size)
-        self.test = tf.data.Dataset.zip((x, field, pre))
+        self.test = tf.data.Dataset.zip((x, field, pre, odds))
         self.test = tf.data.Dataset.zip((self.test, test_y))
 
     def model_compile(self, learning_rate=False):
@@ -372,8 +393,8 @@ class Sanren120(boatdata.BoatDataset):
 
 
 # %%
-bt = Sanren120()
-bt.set_dataset(batch_size=120)
+bt = Sanren120(0.2)
+bt.set_dataset(batch_size=360)
 # %%
 
 
@@ -389,38 +410,43 @@ class BoatTransformer(tf.keras.Model):
     """
     def __init__(self):
         super(BoatTransformer, self).__init__()
-        self.vect_len = 512
+        num_layers = 6
+        self.vect_len = 1024
+        diff = 2048
         self.output_size = 1024
-        self.preinfo_output_size = 128
 
-        self.racers_encoder = BoatEncoder(num_layers=6,
+        self.racers_encoder = BoatEncoder(num_layers=num_layers,
                                           d_model=self.vect_len,
                                           num_heads=8,
-                                          dff=2048,
+                                          dff=diff,
                                           input_vocab_size=1382,
                                           max_sequence_len=12,
                                           output_size=self.output_size)
 
-        self.field_encoder = BoatEncoder(num_layers=6,
+        self.field_encoder = BoatEncoder(num_layers=num_layers,
                                          d_model=self.vect_len,
                                          num_heads=8,
-                                         dff=2048,
+                                         dff=diff,
                                          input_vocab_size=1078,
                                          max_sequence_len=7,
                                          output_size=self.output_size)
 
-        self.preinfo_encoder = PreinfoEncoder(num_layers=6,
-                                              d_model=8,
-                                              num_heads=8,
-                                              dff=2048,
-                                              output_size=self.preinfo_output_size)
+        self.preinfo_encoder = PreinfoEncoder(num_layers=num_layers,
+                                              num_heads=2,
+                                              dff=diff,
+                                              output_size=self.output_size)
 
-        self.senshu01 = layers.Dense(1024)
-        self.senshu02 = layers.Dense(1024)
-        self.senshu03 = layers.Dense(1024)
-        self.senshu04 = layers.Dense(1024)
-        self.senshu05 = layers.Dense(1024)
-        self.senshu06 = layers.Dense(1024)
+        self.odds_encoder = OddsEncoder(num_layers=num_layers,
+                                        num_heads=1,
+                                        dff=diff,
+                                        output_size=self.output_size)        
+
+        self.senshu01 = layers.Dense(self.output_size, activation='relu')
+        self.senshu02 = layers.Dense(self.output_size, activation='relu')
+        self.senshu03 = layers.Dense(self.output_size, activation='relu')
+        self.senshu04 = layers.Dense(self.output_size, activation='relu')
+        self.senshu05 = layers.Dense(self.output_size, activation='relu')
+        self.senshu06 = layers.Dense(self.output_size, activation='relu')
 
         self.layer01 = layers.Dense(2048, activation='relu')
         self.layer02 = layers.Dense(1024, activation='relu')
@@ -428,11 +454,14 @@ class BoatTransformer(tf.keras.Model):
         self.output_layer = layers.Dense(120, activation='softmax')
 
     def call(self, inputs):
-        x, field, pre = inputs
+        x, field, pre, odds = inputs
+
+        odds = tf.expand_dims(odds, 1)
 
         x = self.racers_encoder(x)
         field = self.field_encoder(field)
         pre = self.preinfo_encoder(pre)
+        odds = self.odds_encoder(odds)[:, 0]
 
         x01 = tf.reshape(x[:, 0:2], (-1, 2*self.output_size))
         x02 = tf.reshape(x[:, 2:4], (-1, 2*self.output_size))
@@ -450,7 +479,7 @@ class BoatTransformer(tf.keras.Model):
 
         field = tf.reshape(field, (-1, 7*self.output_size))
 
-        x = self.layer01(layers.concatenate([field, x01, x02, x03, x04, x05, x06]))
+        x = self.layer01(layers.concatenate([field, odds, x01, x02, x03, x04, x05, x06]))
 
         x = self.layer02(x)
         x = self.output_layer(x)
@@ -460,7 +489,7 @@ class BoatTransformer(tf.keras.Model):
 
 # %%
 bt.model = BoatTransformer()
-bt.model_compile(learning_rate=2e-5)
+bt.model_compile()
 # %%
 bt.start_training(epochs=100, weight_name='datas/sanren120/boat_transformer', k_freeze=1)
 # %%

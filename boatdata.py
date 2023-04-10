@@ -52,7 +52,7 @@ def split_data(inp, tr_rate=0.6, val_rate=0.2):
 
 
 class BoatDataset:
-    def __init__(self, ret_grade=True, sorted=True):
+    def __init__(self, n, ret_grade=True, sorted=True):
         self.ret_grade, self.sorted = ret_grade, sorted
 
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
@@ -71,7 +71,7 @@ class BoatDataset:
         self.niren_dic = ret_niren_dic()
 
         # BERTに入力するデータ（レース環境＋レーサー）の単語配列
-        self.tokenized_inputs = self.make_tokenized_inputs(0.2)
+        self.tokenized_inputs = self.make_tokenized_inputs(n)
         self.preinfo_inputs = self.make_preinfo_inputs()
 
         sanren_tan_col = self.df.columns[79:79+120]
