@@ -4,7 +4,120 @@ import tensorflow as tf
 import numpy as np
 import boatdata
 from tqdm import tqdm
+
+
 # %%
+class Sanren120(boatdata.BoatDataset):
+    """
+    ラベルが3連単の組み合わせ120通りのデータセット
+    (x, 120)次元のラベル
+    """
+    def __init__(self, n, ret_grade=True, sorted=True):
+        super().__init__(n, ret_grade, sorted)
+        self.odds = self.ret_sorted_odds()
+        self.set_label()
+
+    def set_label(self):
+        label = np.zeros((len(self.ar_num), 120))
+        th_ar = self.ret_sorted_th()[:, :3]
+
+        for i in tqdm(range(len(th_ar))):
+            temp_ar = th_ar[i]
+
+            sanren = ''
+            for nm in temp_ar:
+                sanren += str(nm)
+
+            label[i][self.sanren_dic[sanren]] = 1
+
+        self.label = label
+
+    def set_dataset(self, batch_size):
+        mask = np.array([False, False, False, False, False, False, False, False,
+                         False, True, True, True, True, True, True, True, True, True, True, True, True, False])
+        inp = self.tokenized_inputs[:, mask]
+
+        mn = np.min(np.where(inp == 100, 100000, inp))
+
+        inp = inp - mn + 1
+        inp = np.where(inp == -11500, 0, inp)
+
+        field_mask = np.array([False, True, True, True, True, True, True, True,
+                               False, False, False, False, False, False, False, False, False, False, False, False, False, False])
+        inp_fe = self.tokenized_inputs[:, field_mask]
+        mn = np.min(np.where(inp_fe == 100, 100000, inp_fe))
+        inp_fe = inp_fe - mn
+
+        pre_mask = np.array([True, True, True,  True, True, True,  True,  True])
+        pre_info = self.pre_info[:, :, pre_mask]
+
+        self.x_train, self.x_valid, self.x_test = boatdata.split_data(inp)
+        self.field_train, self.field_valid, self.field_test = boatdata.split_data(inp_fe)
+        self.pre_train, self.pre_valid, self.pre_test = boatdata.split_data(pre_info)
+        self.odds_train, self.odds_valid, self.odds_test = boatdata.split_data(self.odds)
+        self.y_train, self.y_valid, self.y_test = boatdata.split_data(self.label)
+
+        x = tf.data.Dataset.from_tensor_slices((self.x_train)).batch(batch_size)
+        field = tf.data.Dataset.from_tensor_slices((self.field_train)).batch(batch_size)
+        pre = tf.data.Dataset.from_tensor_slices((self.pre_train)).batch(batch_size)
+        odds = tf.data.Dataset.from_tensor_slices((self.odds_train)).batch(batch_size)
+        train_y = tf.data.Dataset.from_tensor_slices((self.y_train)).batch(batch_size)
+        self.train = tf.data.Dataset.zip((x, field, pre, odds))
+        self.train = tf.data.Dataset.zip((self.train, train_y))
+
+        x = tf.data.Dataset.from_tensor_slices((self.x_valid)).batch(batch_size)
+        field = tf.data.Dataset.from_tensor_slices((self.field_valid)).batch(batch_size)
+        pre = tf.data.Dataset.from_tensor_slices((self.pre_valid)).batch(batch_size)
+        odds = tf.data.Dataset.from_tensor_slices((self.odds_valid)).batch(batch_size)
+        valid_y = tf.data.Dataset.from_tensor_slices((self.y_valid)).batch(batch_size)
+        self.valid = tf.data.Dataset.zip((x, field, pre, odds))
+        self.valid = tf.data.Dataset.zip((self.valid, valid_y))
+
+        x = tf.data.Dataset.from_tensor_slices((self.x_test)).batch(batch_size)
+        field = tf.data.Dataset.from_tensor_slices((self.field_test)).batch(batch_size)
+        pre = tf.data.Dataset.from_tensor_slices((self.pre_test)).batch(batch_size)
+        odds = tf.data.Dataset.from_tensor_slices((self.odds_test)).batch(batch_size)
+        test_y = tf.data.Dataset.from_tensor_slices((self.y_test)).batch(batch_size)
+        self.test = tf.data.Dataset.zip((x, field, pre, odds))
+        self.test = tf.data.Dataset.zip((self.test, test_y))
+
+    def model_compile(self, optimizer):
+        self.model.compile(optimizer=optimizer,
+                           loss='categorical_crossentropy',
+                           metrics=['accuracy'])
+
+    def start_training(self, epochs, weight_name, k_freeze=3):
+        best_val_loss = float('inf')
+        freeze = k_freeze
+
+        val_loss, val_acc = self.model.evaluate(self.valid)
+        print(f"Initial valid loss: {val_loss}")
+
+        # 学習を開始する
+        for epoch in range(epochs):
+            self.model.fit(self.train)
+            val_loss, val_acc = self.model.evaluate(self.valid)
+
+            # valid lossが減少した場合、重みを保存
+            if val_loss < best_val_loss:
+                freeze = 0
+                best_val_loss = val_loss
+                self.model.save_weights(weight_name)
+                print(f"Epoch {epoch + 1}: Valid loss decreased to {val_loss}, saving weights.")
+
+            # valid lossが減少しなかった場合、保存しておいた最良の重みをロード
+            else:
+                if freeze == 0:
+                    self.model.load_weights(weight_name)
+                    self.model_weights_random_init()
+                    freeze = k_freeze
+                    print(f"Epoch {epoch + 1}: Valid loss did not decrease, loading weights.")
+                else:
+                    print(f"Epoch {epoch + 1}: Valid loss did not decrease.")
+
+            freeze = freeze - 1 if freeze > 0 else freeze
+
+            print('')
 
 
 def scaled_dot_product_attention(q, k, v, mask=None):
@@ -272,131 +385,6 @@ class OddsEncoder(tf.keras.Model):
 
         return final_output
 
-# %%
-class Sanren120(boatdata.BoatDataset):
-    """
-    ラベルが3連単の組み合わせ120通りのデータセット
-    (x, 120)次元のラベル
-    """
-    def __init__(self, n, ret_grade=True, sorted=True):
-        super().__init__(n, ret_grade, sorted)
-        self.odds = self.ret_sorted_odds()
-        self.set_label()
-
-    def set_label(self):
-        label = np.zeros((len(self.ar_num), 120))
-        th_ar = self.ret_sorted_th()[:, :3]
-
-        for i in tqdm(range(len(th_ar))):
-            temp_ar = th_ar[i]
-
-            sanren = ''
-            for nm in temp_ar:
-                sanren += str(nm)
-
-            label[i][self.sanren_dic[sanren]] = 1
-
-        self.label = label
-
-    def set_dataset(self, batch_size):
-        mask = np.array([False, False, False, False, False, False, False, False,
-                         False, True, True, True, True, True, True, True, True, True, True, True, True, False])
-        inp = self.tokenized_inputs[:, mask]
-
-        mn = np.min(np.where(inp == 100, 100000, inp))
-
-        inp = inp - mn + 1
-        inp = np.where(inp == -11500, 0, inp)
-
-        field_mask = np.array([False, True, True, True, True, True, True, True,
-                               False, False, False, False, False, False, False, False, False, False, False, False, False, False])
-        inp_fe = self.tokenized_inputs[:, field_mask]
-        mn = np.min(np.where(inp_fe == 100, 100000, inp_fe))
-        inp_fe = inp_fe - mn
-
-        pre_mask = np.array([True, True, True,  True, True, True,  True,  True])
-        pre_info = self.pre_info[:, :, pre_mask]
-
-        self.x_train, self.x_valid, self.x_test = boatdata.split_data(inp)
-        self.field_train, self.field_valid, self.field_test = boatdata.split_data(inp_fe)
-        self.pre_train, self.pre_valid, self.pre_test = boatdata.split_data(pre_info)
-        self.odds_train, self.odds_valid, self.odds_test = boatdata.split_data(self.odds)
-        self.y_train, self.y_valid, self.y_test = boatdata.split_data(self.label)
-
-        x = tf.data.Dataset.from_tensor_slices((self.x_train)).batch(batch_size)
-        field = tf.data.Dataset.from_tensor_slices((self.field_train)).batch(batch_size)
-        pre = tf.data.Dataset.from_tensor_slices((self.pre_train)).batch(batch_size)
-        odds = tf.data.Dataset.from_tensor_slices((self.odds_train)).batch(batch_size)
-        train_y = tf.data.Dataset.from_tensor_slices((self.y_train)).batch(batch_size)
-        self.train = tf.data.Dataset.zip((x, field, pre, odds))
-        self.train = tf.data.Dataset.zip((self.train, train_y))
-
-        x = tf.data.Dataset.from_tensor_slices((self.x_valid)).batch(batch_size)
-        field = tf.data.Dataset.from_tensor_slices((self.field_valid)).batch(batch_size)
-        pre = tf.data.Dataset.from_tensor_slices((self.pre_valid)).batch(batch_size)
-        odds = tf.data.Dataset.from_tensor_slices((self.odds_valid)).batch(batch_size)
-        valid_y = tf.data.Dataset.from_tensor_slices((self.y_valid)).batch(batch_size)
-        self.valid = tf.data.Dataset.zip((x, field, pre, odds))
-        self.valid = tf.data.Dataset.zip((self.valid, valid_y))
-
-        x = tf.data.Dataset.from_tensor_slices((self.x_test)).batch(batch_size)
-        field = tf.data.Dataset.from_tensor_slices((self.field_test)).batch(batch_size)
-        pre = tf.data.Dataset.from_tensor_slices((self.pre_test)).batch(batch_size)
-        odds = tf.data.Dataset.from_tensor_slices((self.odds_test)).batch(batch_size)
-        test_y = tf.data.Dataset.from_tensor_slices((self.y_test)).batch(batch_size)
-        self.test = tf.data.Dataset.zip((x, field, pre, odds))
-        self.test = tf.data.Dataset.zip((self.test, test_y))
-
-    def model_compile(self, learning_rate=False):
-        if learning_rate:
-            optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-        else:
-            optimizer = 'Adam'
-
-        self.model.compile(optimizer=optimizer,
-                           loss='categorical_crossentropy',
-                           metrics=['accuracy'])
-
-    def start_training(self, epochs, weight_name, k_freeze=3):
-        best_val_loss = float('inf')
-        k_freeze = 3
-        freeze = k_freeze
-
-        val_loss, val_acc = self.model.evaluate(self.valid)
-        print(f"Initial valid loss: {val_loss}")
-
-        # 学習を開始する
-        for epoch in range(epochs):
-            self.model.fit(self.train)
-            val_loss, val_acc = self.model.evaluate(self.valid)
-
-            # valid lossが減少した場合、重みを保存
-            if val_loss < best_val_loss:
-                freeze = 0
-                best_val_loss = val_loss
-                self.model.save_weights(weight_name)
-                print(f"Epoch {epoch + 1}: Valid loss decreased to {val_loss}, saving weights.")
-
-            # valid lossが減少しなかった場合、保存しておいた最良の重みをロード
-            else:
-                if freeze == 0:
-                    self.model.load_weights(weight_name)
-                    self.model_weights_random_init()
-                    freeze = k_freeze
-                    print(f"Epoch {epoch + 1}: Valid loss did not decrease, loading weights.")
-                else:
-                    print(f"Epoch {epoch + 1}: Valid loss did not decrease.")
-
-            freeze = freeze - 1 if freeze > 0 else freeze
-
-            print('')
-
-
-# %%
-bt = Sanren120(0.2)
-bt.set_dataset(batch_size=360)
-# %%
-
 
 class BoatTransformer(tf.keras.Model):
     """
@@ -410,7 +398,7 @@ class BoatTransformer(tf.keras.Model):
     """
     def __init__(self):
         super(BoatTransformer, self).__init__()
-        num_layers = 6
+        num_layers = 12
         self.vect_len = 1024
         diff = 2048
         self.output_size = 1024
@@ -448,7 +436,7 @@ class BoatTransformer(tf.keras.Model):
         self.senshu05 = layers.Dense(self.output_size, activation='relu')
         self.senshu06 = layers.Dense(self.output_size, activation='relu')
 
-        self.layer01 = layers.Dense(2048, activation='relu')
+        self.layer01 = layers.Dense(1024*2, activation='relu')
         self.layer02 = layers.Dense(1024, activation='relu')
 
         self.output_layer = layers.Dense(120, activation='softmax')
@@ -487,9 +475,57 @@ class BoatTransformer(tf.keras.Model):
         return x
 
 
+class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+    def __init__(self, d_model, warmup_steps=4000):
+        super(CustomSchedule, self).__init__()
+
+        self.d_model = d_model
+        self.d_model = tf.cast(self.d_model, tf.float32)
+
+        self.warmup_steps = warmup_steps
+
+    def __call__(self, step):
+        arg1 = tf.math.rsqrt(step)
+        arg2 = step * (self.warmup_steps ** -1.5)
+
+        return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+
+
 # %%
+bt = Sanren120(0.2)
+bt.set_dataset(batch_size=120)
 bt.model = BoatTransformer()
-bt.model_compile()
+learning_rate = CustomSchedule(1024*4)
+
+optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98,
+                                     epsilon=1e-9)
+bt.model_compile(optimizer)
 # %%
-bt.start_training(epochs=100, weight_name='datas/sanren120/boat_transformer', k_freeze=1)
+bt.start_training(epochs=100, weight_name='datas/sanren120/boat_transformer', k_freeze=2)
+# %%
+bt.label
+# %%
+bt.ar_th
+# %%
+bt.ret_sorted_th()
+# %%
+sort = bt.ret_sorted(np.tile(
+            np.array([1, 2, 3, 4, 5, 6]),
+            (len(bt.ar_num), 1)))
+# %%
+sort
+# %%
+bt.ar_th-1
+# %%
+bt.ar_th
+# %%
+course_th = [sort[i][(bt.ar_th-1)[i]] for i in tqdm(range(len(sort)))]
+# %%
+len(sort)
+# %%
+course_th = np.array(course_th)
+# %%
+course_th
+# %%
+np.save('datas/course_th.npy', course_th)
 # %%
