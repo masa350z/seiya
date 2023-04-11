@@ -346,20 +346,17 @@ class BoatDataset:
         self.pre_info = self.ret_sorted(np.concatenate([senshu01, senshu02, senshu03, senshu04, senshu05, senshu06], axis=1))
 
     def ret_sorted_th(self):
-        sort = self.ret_sorted(np.tile(
-            np.array([1, 2, 3, 4, 5, 6]),
-            (len(self.ar_num), 1)))
+        if os.path.exists('datas/course_th.npy'):
+            return np.load('datas/course_th.npy')
+        else:
+            sort = self.ret_sorted(np.tile(
+                np.array([1, 2, 3, 4, 5, 6]),
+                (len(self.ar_num), 1)))
 
-        th1 = sort.reshape(-1, 1)[(self.ar_th[:, 0]-1)]
-        th2 = sort.reshape(-1, 1)[(self.ar_th[:, 1]-1)]
-        th3 = sort.reshape(-1, 1)[(self.ar_th[:, 2]-1)]
-        th4 = sort.reshape(-1, 1)[(self.ar_th[:, 3]-1)]
-        th5 = sort.reshape(-1, 1)[(self.ar_th[:, 4]-1)]
-        th6 = sort.reshape(-1, 1)[(self.ar_th[:, 5]-1)]
+            course_th = [sort[i][(self.ar_th-1)[i]] for i in tqdm(range(len(sort)))]
+            course_th = np.array(course_th)
 
-        course_th = np.concatenate([th1, th2, th3, th4, th5, th6], axis=1)
-
-        return course_th
+            return course_th
 
     def ret_sanren_odds(self):
         sanren_odds_lis = []
