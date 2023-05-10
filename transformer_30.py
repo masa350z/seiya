@@ -7,6 +7,8 @@ from tqdm import tqdm
 
 
 # %%
+
+
 class Sanren120(boatdata.BoatDataset):
     """
     ラベルが3連単の組み合わせ120通りのデータセット
@@ -14,21 +16,21 @@ class Sanren120(boatdata.BoatDataset):
     """
     def __init__(self, n, ret_grade=True, sorted=True):
         super().__init__(n, ret_grade, sorted)
-        self.odds = self.ret_sorted_odds()
+        self.odds = self.ret_sorted_nirenodds()
         self.set_label()
 
     def set_label(self):
-        label = np.zeros((len(self.ar_num), 120))
-        th_ar = self.ret_sorted_th()[:, :3]
+        label = np.zeros((len(self.ar_num), 30))
+        th_ar = self.ret_sorted_th()[:, :2]
 
         for i in tqdm(range(len(th_ar))):
             temp_ar = th_ar[i]
 
-            sanren = ''
+            niren = ''
             for nm in temp_ar:
-                sanren += str(nm)
+                niren += str(nm)
 
-            label[i][self.sanren_dic[sanren]] = 1
+            label[i][self.niren_dic[niren]] = 1
 
         self.label = label
 
@@ -51,14 +53,11 @@ class Sanren120(boatdata.BoatDataset):
         pre_mask = np.array([True, True, True,  True, True, True,  True,  True])
         pre_info = self.pre_info[:, :, pre_mask]
 
-        #field_mask_ = self.tokenized_inputs[:,1] == 10522
-        field_mask_ = self.tokenized_inputs[:,1] > 0
-
-        self.x_train, self.x_valid, self.x_test = boatdata.split_data(inp[field_mask_])
-        self.field_train, self.field_valid, self.field_test = boatdata.split_data(inp_fe[field_mask_])
-        self.pre_train, self.pre_valid, self.pre_test = boatdata.split_data(pre_info[field_mask_])
-        self.odds_train, self.odds_valid, self.odds_test = boatdata.split_data(self.odds[field_mask_])
-        self.y_train, self.y_valid, self.y_test = boatdata.split_data(self.label[field_mask_])
+        self.x_train, self.x_valid, self.x_test = boatdata.split_data(inp)
+        self.field_train, self.field_valid, self.field_test = boatdata.split_data(inp_fe)
+        self.pre_train, self.pre_valid, self.pre_test = boatdata.split_data(pre_info)
+        self.odds_train, self.odds_valid, self.odds_test = boatdata.split_data(self.odds)
+        self.y_train, self.y_valid, self.y_test = boatdata.split_data(self.label)
 
         x = tf.data.Dataset.from_tensor_slices((self.x_train)).batch(batch_size)
         field = tf.data.Dataset.from_tensor_slices((self.field_train)).batch(batch_size)
@@ -370,11 +369,11 @@ class PreinfoEncoder(tf.keras.Model):
         return final_output
 
 
-class OddsEncoder(tf.keras.Model):
+class OddsEncoder02(tf.keras.Model):
     def __init__(self, num_layers, num_heads, dff, output_size):
-        super(OddsEncoder, self).__init__()
+        super(OddsEncoder02, self).__init__()
 
-        self.encoder = NoEmbeddingEncoder(1, num_layers, 120, num_heads, dff)
+        self.encoder = NoEmbeddingEncoder(1, num_layers, 30, num_heads, dff)
 
         self.final_layer = layers.Dense(output_size)
 
@@ -427,10 +426,10 @@ class BoatTransformer(tf.keras.Model):
                                               dff=diff,
                                               output_size=self.output_size)
 
-        self.odds_encoder = OddsEncoder(num_layers=num_layers,
-                                        num_heads=1,
-                                        dff=diff,
-                                        output_size=self.output_size)        
+        self.odds_encoder = OddsEncoder02(num_layers=num_layers,
+                                          num_heads=1,
+                                          dff=diff,
+                                          output_size=self.output_size)        
 
         self.senshu01 = layers.Dense(self.output_size, activation='relu')
         self.senshu02 = layers.Dense(self.output_size, activation='relu')
@@ -439,10 +438,10 @@ class BoatTransformer(tf.keras.Model):
         self.senshu05 = layers.Dense(self.output_size, activation='relu')
         self.senshu06 = layers.Dense(self.output_size, activation='relu')
 
-        self.layer01 = layers.Dense(1024, activation='relu')
-        self.layer02 = layers.Dense(512, activation='relu')
+        self.layer01 = layers.Dense(512, activation='relu')
+        self.layer02 = layers.Dense(256, activation='relu')
 
-        self.output_layer = layers.Dense(120, activation='softmax')
+        self.output_layer = layers.Dense(30, activation='softmax')
 
     def call(self, inputs):
         x, field, pre, odds = inputs
@@ -470,13 +469,12 @@ class BoatTransformer(tf.keras.Model):
 
         field = tf.reshape(field, (-1, 7*self.output_size))
 
-        #x = self.layer01(layers.concatenate([field, odds, x01, x02, x03, x04, x05, x06]))
-        x = self.layer01(layers.concatenate([field, x01, x02, x03, x04, x05, x06]))
+        x = self.layer01(layers.concatenate([field, odds, x01, x02, x03, x04, x05, x06]))
 
         x = self.layer02(x)
-        x = self.output_layer(x)
+        #x = self.output_layer(x)
 
-        return x
+        return self.output_layer(x)
 
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -496,42 +494,50 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 
 # %%
-bt = Sanren120(0.2)
+bt = Sanren120(0.9)
 bt.set_dataset(batch_size=120)
 bt.model = BoatTransformer()
-#bt.model.load_weights('datas/sanren120/boat_transformer')
-learning_rate = CustomSchedule(1024*4)
+learning_rate = CustomSchedule(1024)
 
 optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98,
                                      epsilon=1e-9)
 bt.model_compile(optimizer)
 # %%
-bt.start_training(epochs=100, weight_name='datas/sanren120/boat_transformer', k_freeze=5)
+bt.start_training(epochs=100, weight_name='datas/niren30/boat_transformer', k_freeze=3)
 # %%
-bt.model.load_weights('datas/sanren120/boat_transformer')
+bt.model.load_weights('datas/niren30/boat_transformer')
+# %%
 pred = bt.model.predict(bt.train)
 # %%
-odds_k = 15
+odds_k = 13
 pred_k = 0.12
-ot = bt.odds_train*bt.y_train-1
-pred_ = pred*ot*(bt.odds_train > odds_k)*(pred > pred_k)
+ot = bt.odds_train*bt.y_train[:, :30]-1
+pred_ = pred[:, :30]*ot*(bt.odds_train > odds_k)*(pred > pred_k)
 
 print(np.sum(pred_)/len(pred_))
 print(np.sum(pred_)/np.sum(np.sum(pred_, axis=1) != 0))
 # %%
 pred = bt.model.predict(bt.valid)
 # %%
-ot = bt.odds_valid*bt.y_valid-1
-pred_ = pred*ot*(bt.odds_valid > odds_k)*(pred > pred_k)
+odds_k = 13
+pred_k = 0.12
+ot = bt.odds_valid*bt.y_valid[:, :30]-1
+pred_ = pred[:, :30]*ot*(bt.odds_valid > odds_k)*(pred > pred_k)
 
 print(np.sum(pred_)/len(pred_))
 print(np.sum(pred_)/np.sum(np.sum(pred_, axis=1) != 0))
 # %%
 pred = bt.model.predict(bt.test)
 # %%
-ot = bt.odds_test*bt.y_test-1
-pred_ = pred*ot*(bt.odds_test > odds_k)*(pred > pred_k)
+odds_k = 13
+pred_k = 0.12
+ot = bt.odds_test*bt.y_test[:, :30]-1
+pred_ = pred[:, :30]*ot*(bt.odds_test > odds_k)*(pred > pred_k)
 
 print(np.sum(pred_)/len(pred_))
 print(np.sum(pred_)/np.sum(np.sum(pred_, axis=1) != 0))
+# %%
+np.sum(pred_)*10000
+# %%
+
 # %%

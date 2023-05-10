@@ -120,7 +120,7 @@ class SanrenOdds(boatdata.BoatDataset):
         for epoch in range(epochs):
             self.model.fit(self.tr)
             pred_val = self.model.predict(self.val)
-            val_loss = np.sum((pred_val[:,:-1]*self.y_vl[:,:-1]))
+            val_loss = np.sum((pred_val[:, :-1]*self.y_vl[:, :-1]))
 
             # valid lossが減少した場合、重みを保存
             if val_loss < best_val_loss:

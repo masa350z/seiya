@@ -6,40 +6,6 @@ import numpy as np
 import os
 
 
-def add_str(inp, str_):
-    ret = []
-    for i in inp:
-        temp = [str_.format(str(j)) for j in i]
-        ret.append(temp)
-    ret = np.array(ret)
-
-    return ret
-
-
-def ret_sanren_dic():
-    sanren_dic, count = {}, 0
-    for i in range(6):
-        for j in range(6):
-            for k in range(6):
-                j1, j2, j3 = i == j, j == k, i == k
-                if not (j1 or j2 or j3):
-                    sanren_dic['{}{}{}'.format(i+1, j+1, k+1)] = count
-                    count += 1
-
-    return sanren_dic
-
-
-def ret_niren_dic():
-    niren_dic, count = {}, 0
-    for i in range(6):
-        for j in range(6):
-            if not i == j:
-                niren_dic['{}{}'.format(i+1, j+1)] = count
-                count += 1
-
-    return niren_dic
-
-
 def split_data(inp, tr_rate=0.6, val_rate=0.2):
     train_len = int(len(inp)*tr_rate)
     valid_len = int(len(inp)*val_rate)
@@ -52,31 +18,18 @@ def split_data(inp, tr_rate=0.6, val_rate=0.2):
 
 
 class BoatDataset:
-    def __init__(self, n, ret_grade=True, sorted=True):
-        self.ret_grade, self.sorted = ret_grade, sorted
+    def __init__(self):
 
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         self.df = pd.read_csv('datas/boatdata.csv')
         self.read_boatcsv()
 
-        indx = np.zeros(self.ar_num.shape)
-        for i in range(6):
-            for j in range(6):
-                indx[:, j] += (self.ar_num[:, j] == self.ar_incourse[:, i])*i
-
-        # 艇番順をコース順に並べ替えるためのインデックス
-        self.indx = indx.astype('int16')
-
-        self.sanren_dic = ret_sanren_dic()
-        self.niren_dic = ret_niren_dic()
-
-        # BERTに入力するデータ（レース環境＋レーサー）の単語配列
-        self.tokenized_inputs = self.make_tokenized_inputs(n)
-        self.preinfo_inputs = self.make_preinfo_inputs()
-
+        # 正解の3連単オッズ
         sanren_tan_col = self.df.columns[79:79+120]
-        # 正解の３連単オッズ
         self.sanren_odds = self.df[sanren_tan_col]
+        # 正解の2連単オッズ
+        niren_tan_col = self.df.columns[79+120+20:79+120+20+30]
+        self.niren_odds = self.df[niren_tan_col]
 
     def read_boatcsv(self):
         """
@@ -93,6 +46,12 @@ class BoatDataset:
         ar_grade = self.df[['grade_1', 'grade_2', 'grade_3',
                             'grade_4', 'grade_5', 'grade_6']]
         self.ar_grade = np.array(ar_grade)
+
+        self.ar_grade_num = np.where(self.ar_grade == 'A1', 0, self.ar_grade)
+        self.ar_grade_num = np.where(self.ar_grade_num == 'A2', 1, self.ar_grade_num)
+        self.ar_grade_num = np.where(self.ar_grade_num == 'B1', 2, self.ar_grade_num)
+        self.ar_grade_num = np.where(self.ar_grade_num == 'B2', 3, self.ar_grade_num)
+        self.ar_grade_num = self.ar_grade_num.astype('int16')
 
         ar_ze1 = self.df[['zenkoku_shoritshu_1', 'zenkoku_shoritshu_2',
                           'zenkoku_shoritshu_3', 'zenkoku_shoritshu_4',
@@ -146,7 +105,7 @@ class BoatDataset:
         self.tenji_time = np.array(tenji_time, dtype='float32')
         self.tenji_start_time = np.array(tenji_start_time, dtype='float32')
 
-        self.ar_field = np.array([str(int(ba))[-4:-2] for ba in self.df['index']])
+        self.ar_field = np.array([str(int(ba))[-4:-2] for ba in self.df['index']], dtype='int16')
 
         ar_condition = self.df[['weather',
                                 'temperature',
@@ -157,206 +116,21 @@ class BoatDataset:
         self.ar_condition = np.round(np.array(ar_condition,
                                               dtype='float16'), 1)
 
-    def ret_sorted(self, inp):
-        """
-        艇番順に並んでいるデータを
-        侵入コース順に並び替える関数
-        """
-        ret = []
-        if len(inp) == len(self.indx):
-            for i in range(len(inp)):
-                ret.append(inp[i][self.indx[i]])
+        c1 = (self.ar_num - self.ar_incourse[:, 0].reshape(-1, 1) == 0)*np.arange(1, 7)
+        c2 = (self.ar_num - self.ar_incourse[:, 1].reshape(-1, 1) == 0)*np.arange(1, 7)
+        c3 = (self.ar_num - self.ar_incourse[:, 2].reshape(-1, 1) == 0)*np.arange(1, 7)
+        c4 = (self.ar_num - self.ar_incourse[:, 3].reshape(-1, 1) == 0)*np.arange(1, 7)
+        c5 = (self.ar_num - self.ar_incourse[:, 4].reshape(-1, 1) == 0)*np.arange(1, 7)
+        c6 = (self.ar_num - self.ar_incourse[:, 5].reshape(-1, 1) == 0)*np.arange(1, 7)
 
-            ret = np.array(ret)
+        c1 = np.sum(c1, axis=1).reshape(-1, 1)
+        c2 = np.sum(c2, axis=1).reshape(-1, 1)
+        c3 = np.sum(c3, axis=1).reshape(-1, 1)
+        c4 = np.sum(c4, axis=1).reshape(-1, 1)
+        c5 = np.sum(c5, axis=1).reshape(-1, 1)
+        c6 = np.sum(c6, axis=1).reshape(-1, 1)
 
-            return ret
-        else:
-            raise ValueError("error!")
-
-    def ret_field_conditions(self):
-        """
-        そのレースのレース場、コンディションを
-        単語化して並べた配列を返す関数
-        """
-        fe = self.ar_field
-        fe = np.array(['field{}'.format(i) for i in fe])
-        cd = self.ar_condition.astype('str')
-
-        ret = []
-        for i in cd:
-            temp = []
-            temp.append('weath' + i[0])
-            temp.append('temp' + i[1])
-            temp.append('wtemp' + i[2])
-            temp.append('whight' + i[3])
-            temp.append('wspeed' + i[4])
-            temp.append('wvect' + i[5])
-            ret.append(temp)
-
-        cd = np.array(ret)
-
-        field_conditions = np.concatenate([fe.reshape(-1, 1), cd],
-                                          axis=1,
-                                          dtype='str')
-
-        return field_conditions
-
-    def ret_racers_data(self):
-        """
-        そのレースのレーサー、グレードの情報を
-        単語化して並べた配列を返す関数
-        """
-        if self.sorted:
-            num = self.ret_sorted(add_str(self.ar_num, 'num_{}'))
-            grade = self.ret_sorted(add_str(self.ar_grade, 'grade_{}'))
-        else:
-            num = add_str(self.ar_num, 'num_{}')
-            grade = add_str(self.ar_grade, 'grade_{}')
-
-        num1 = np.concatenate([num[:, 0].reshape(-1, 1),
-                               grade[:, 0].reshape(-1, 1)], axis=1)
-
-        num2 = np.concatenate([num[:, 1].reshape(-1, 1),
-                               grade[:, 1].reshape(-1, 1)], axis=1)
-
-        num3 = np.concatenate([num[:, 2].reshape(-1, 1),
-                               grade[:, 2].reshape(-1, 1)], axis=1)
-
-        num4 = np.concatenate([num[:, 3].reshape(-1, 1),
-                               grade[:, 3].reshape(-1, 1)], axis=1)
-
-        num5 = np.concatenate([num[:, 4].reshape(-1, 1),
-                               grade[:, 4].reshape(-1, 1)], axis=1)
-
-        num6 = np.concatenate([num[:, 5].reshape(-1, 1),
-                               grade[:, 5].reshape(-1, 1)], axis=1)
-
-        if self.ret_grade:
-            racers_data = np.concatenate([num1, num2,
-                                          num3, num4,
-                                          num5, num6], axis=1)
-        else:
-            racers_data = np.concatenate([num1[:, :1], num2[:, :1],
-                                          num3[:, :1], num4[:, :1],
-                                          num5[:, :1], num6[:, :1]], axis=1)
-        return racers_data
-
-    def ret_saiyou_senshu(self, n, half_len):
-        counts = pd.DataFrame(self.ar_num[:half_len].reshape(-1)).value_counts()
-        counts = counts[:-int(len(counts)*n)]
-        saiyou = np.array(list(counts.index)).reshape(-1)
-
-        return np.array(['num_{}'.format(i) for i in saiyou], dtype='str')
-
-    def make_tokenized_inputs(self, n):
-        """
-        レース環境とレーサーの単語配列を取得し
-        トークナイザーでインデックス化して
-        BERTに入力可能なデータにして返す関数
-        """
-        fname = 'datas/tokenized_inputs'
-        if self.ret_grade:
-            fname += '_grade'
-        if self.sorted:
-            fname += '_sorted'
-        fname += '_{}.npy'.format(n)
-
-        if os.path.exists(fname):
-            ret = np.load(fname)
-            ret[ret > 20000] -= 20000
-            return ret
-        else:
-            field_data = self.ret_field_conditions()
-
-            seps = np.zeros(len(field_data)).astype('str')
-            seps[seps == '0.0'] = '[SEP]'
-            seps = seps.reshape(-1, 1)
-
-            racers_data = self.ret_racers_data()
-
-            half_len = int(len(field_data)*0.6)
-
-            fdf = pd.DataFrame(field_data[:half_len].reshape(-1))
-            fdf = np.array(fdf[~fdf.duplicated()]).reshape(-1).astype('str')
-
-            # rdf = pd.DataFrame(racers_data[:half_len].reshape(-1))
-            # rdf = np.array(rdf[~rdf.duplicated()]).reshape(-1).astype('str')
-            rdf = self.ret_saiyou_senshu(n, half_len)
-
-            self.tokenizer.add_tokens(list(fdf), special_tokens=True)
-            self.tokenizer.add_tokens(list(rdf), special_tokens=True)
-            self.tokenizer.add_tokens(['grade_A1', 'grade_A2', 'grade_B1', 'grade_B2'],
-                                      special_tokens=True)
-
-            inp_data = np.concatenate(
-                [field_data, seps, racers_data],
-                axis=1)
-
-            ret = []
-            for j in tqdm(inp_data):
-                token = self.tokenizer(list(j))['input_ids']
-                temp = [101]
-                for i in token:
-                    if len(i) == 3:
-                        temp.append(i[1])
-                    else:
-                        temp.append(100)
-                temp.append(102)
-                ret.append(temp)
-
-            ret = np.array(ret)
-            np.save(fname, ret)
-
-            ret[ret > 20000] -= 20000
-
-            return ret
-
-    def make_preinfo_inputs(self):
-        senshu01 = np.array(self.df[['zenkoku_shoritshu_1','zenkoku_nirenritshu_1','zenkoku_sanrenritshu_1',
-                                     'tochi_shoritshu_1','tochi_nirenritshu_1','tochi_sanrenritshu_1',
-                                     'tenji_time_1','tenji_start_time_1']])
-        senshu01[:,7][senshu01[:,7] == 1] = 0
-        senshu01 = np.expand_dims(senshu01, 1)
-        senshu02 = np.array(self.df[['zenkoku_shoritshu_2','zenkoku_nirenritshu_2','zenkoku_sanrenritshu_2',
-                                     'tochi_shoritshu_2','tochi_nirenritshu_2','tochi_sanrenritshu_2',
-                                     'tenji_time_2','tenji_start_time_2']])
-        senshu02[:,7][senshu02[:,7] == 1] = 0
-        senshu02 = np.expand_dims(senshu02, 1)
-        senshu03 = np.array(self.df[['zenkoku_shoritshu_3','zenkoku_nirenritshu_3','zenkoku_sanrenritshu_3',
-                                     'tochi_shoritshu_3','tochi_nirenritshu_3','tochi_sanrenritshu_3',
-                                     'tenji_time_3','tenji_start_time_3']])
-        senshu03[:,7][senshu03[:,7] == 1] = 0
-        senshu03 = np.expand_dims(senshu03, 1)
-        senshu04 = np.array(self.df[['zenkoku_shoritshu_4','zenkoku_nirenritshu_4','zenkoku_sanrenritshu_4',
-                                     'tochi_shoritshu_4','tochi_nirenritshu_4','tochi_sanrenritshu_4',
-                                     'tenji_time_4','tenji_start_time_4']])
-        senshu04[:,7][senshu04[:,7] == 1] = 0
-        senshu04 = np.expand_dims(senshu04, 1)
-        senshu05 = np.array(self.df[['zenkoku_shoritshu_5','zenkoku_nirenritshu_5','zenkoku_sanrenritshu_5',
-                                     'tochi_shoritshu_5','tochi_nirenritshu_5','tochi_sanrenritshu_5',
-                                     'tenji_time_5','tenji_start_time_5']])
-        senshu05[:,7][senshu05[:,7] == 1] = 0
-        senshu05 = np.expand_dims(senshu05, 1)
-        senshu06 = np.array(self.df[['zenkoku_shoritshu_6','zenkoku_nirenritshu_6','zenkoku_sanrenritshu_6',
-                                     'tochi_shoritshu_6','tochi_nirenritshu_6','tochi_sanrenritshu_6',
-                                     'tenji_time_6','tenji_start_time_6']])
-        senshu06[:,7][senshu06[:,7] == 1] = 0
-        senshu06 = np.expand_dims(senshu06, 1)
-
-        self.pre_info = self.ret_sorted(np.concatenate([senshu01, senshu02, senshu03, senshu04, senshu05, senshu06], axis=1))
-
-    def ret_sorted_th(self):
-        if os.path.exists('datas/course_th.npy'):
-            return np.load('datas/course_th.npy')
-        else:
-            sort = self.ret_sorted(np.tile(
-                np.array([1, 2, 3, 4, 5, 6]),
-                (len(self.ar_num), 1)))
-
-            course_th = [sort[i][(self.ar_th-1)[i]] for i in tqdm(range(len(sort)))]
-            course_th = np.array(course_th)
-
-            return course_th
+        self.ar_incourse_num = np.concatenate([c1, c2, c3, c4, c5, c6], axis=1) - 1
 
     def ret_sanren_odds(self):
         sanren_odds_lis = []
@@ -369,46 +143,15 @@ class BoatDataset:
 
         return np.array(sanren_odds_lis)
 
-    def ret_sorted_odds(self):
-        if os.path.exists('datas/sorted_odds.npy'):
-            return np.load('datas/sorted_odds.npy')
-        else:
-            sort = self.ret_sorted(np.tile(np.array([1, 2, 3, 4, 5, 6]),
-                                           (len(self.ar_num), 1)))
+    def ret_niren_odds(self):
+        niren_odds_lis = []
+        for i in tqdm(range(len(self.ar_th))):
+            num1 = self.ar_th[i][0]
+            num2 = self.ar_th[i][1]
+            odds = self.sanren_odds.iloc[i]['niren_tan_{}{}'.format(num1, num2)]
+            niren_odds_lis.append(odds)
 
-            dics = []
-            for i in tqdm(range(len(sort))):
-                temp_dic = {}
-                for j in range(6):
-                    temp_dic[j+1] = sort[i][j]
-                dics.append(temp_dic)
-
-            sanren_lis = []
-            for i in range(6):
-                for j in range(6):
-                    for k in range(6):
-                        j1 = i == j
-                        j2 = j == k
-                        j3 = i == k
-                        if not (j1 or j2 or j3):
-                            sanren_lis.append([i+1, j+1, k+1])
-
-            ret_odds = []
-            for i in tqdm(range(len(self.sanren_odds))):
-                temp_odds = []
-                dic = dics[i]
-                odds = self.sanren_odds.iloc[i]
-                for j in range(120):
-                    temp = sanren_lis[j]
-                    temp_num = '{}{}{}'.format(dic[temp[0]], dic[temp[1]], dic[temp[2]])
-                    temp_odds.append(odds['sanren_tan_{}'.format(temp_num)])
-
-                ret_odds.append(temp_odds)
-
-            ret_odds = np.array(ret_odds)
-            np.save('datas/sorted_odds.npy', ret_odds)
-
-            return ret_odds
+        return np.array(niren_odds_lis)
 
     def model_weights_random_init(self, init_ratio=0.0001):
         """
@@ -427,12 +170,5 @@ class BoatDataset:
 
         # モデルの重みをセットする
         self.model.set_weights(weights)
-
-
-if __name__ == '__main__':
-    bt = BoatDataset(0.1)
-    bt = BoatDataset(0.2)
-    bt = BoatDataset(0.3)
-    bt = BoatDataset(0.5)
 
 # %%

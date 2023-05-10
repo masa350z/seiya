@@ -4,7 +4,6 @@ from keras.layers import Dense, concatenate
 from keras.models import Model
 import tensorflow as tf
 
-from tqdm import tqdm
 import numpy as np
 import boatdata
 
@@ -24,10 +23,10 @@ class Sanren6_6(boatdata.BoatDataset):
 
             co_to_th = [arr[temp == j+1][0] for j in range(6)]
 
-            y_ = np.zeros((6,6))
+            y_ = np.zeros((6, 6))
             for j in range(6):
                 y_[j][co_to_th[j]] = 1
-            
+
             data_y.append(y_)
 
         self.label = np.array(data_y)
@@ -44,7 +43,7 @@ class Sanren6_6(boatdata.BoatDataset):
         pre_train_ = tf.data.Dataset.from_tensor_slices(self.pre_train).batch(batch_size)
         pre_valid_ = tf.data.Dataset.from_tensor_slices(self.pre_valid).batch(batch_size)
         pre_test_ = tf.data.Dataset.from_tensor_slices(self.pre_test).batch(batch_size)
-        
+
         y_train_ = tf.data.Dataset.from_tensor_slices(self.y_train).batch(batch_size)
         y_valid_ = tf.data.Dataset.from_tensor_slices(self.y_valid).batch(batch_size)
         y_test_ = tf.data.Dataset.from_tensor_slices(self.y_test).batch(batch_size)
@@ -102,17 +101,17 @@ class Sanren6_6(boatdata.BoatDataset):
             pred = self.model.predict(self.valid)
             y = self.y_valid
 
-            mx = np.expand_dims(np.max(pred,axis=2), 2)
+            mx = np.expand_dims(np.max(pred, axis=2), 2)
 
-            win = ((pred - mx)==0)*y
-            win = np.sum(win,axis=2)
+            win = ((pred - mx) == 0)*y
+            win = np.sum(win, axis=2)
 
-            print(np.sum(win[:,0])/len(win))
-            print(np.sum(win[:,1])/len(win))
-            print(np.sum(win[:,2])/len(win))
-            print(np.sum(win[:,3])/len(win))
-            print(np.sum(win[:,4])/len(win))
-            print(np.sum(win[:,5])/len(win))
+            print(np.sum(win[:, 0])/len(win))
+            print(np.sum(win[:, 1])/len(win))
+            print(np.sum(win[:, 2])/len(win))
+            print(np.sum(win[:, 3])/len(win))
+            print(np.sum(win[:, 4])/len(win))
+            print(np.sum(win[:, 5])/len(win))
 
             print('')
 
@@ -153,43 +152,43 @@ class RNN_Boat_Bert(Model):
 
     def call(self, inputs):
         x, pre = inputs
-        x= self.bert_model(x)
+        x = self.bert_model(x)
 
-        x1 = self.dense01(x[0][:,9])
-        pre1 = self.dense01_(pre[:,0])
-        x1 = self.conc01(concatenate([x1, pre1]))
-        x1 = self.output_01(x1)
+        x1 = self.dense01(x[0][:, 9])
+        pre1 = self.dense01_(pre[:, 0])
+        x1_ = self.conc01(concatenate([x1, pre1]))
+        x1 = self.output_01(x1_)
 
-        x2 = self.dense02(x[0][:,11])
-        pre2 = self.dense02_(pre[:,1])
-        x2 = self.conc02(concatenate([x2, pre2]))
-        x2 = self.output_02(x2)
+        x2 = self.dense02(x[0][:, 11])
+        pre2 = self.dense02_(pre[:, 1])
+        x2_ = self.conc02(concatenate([x2, pre2, x1_]))
+        x2 = self.output_02(x2_)
 
-        x3 = self.dense03(x[0][:,13])
-        pre3 = self.dense03_(pre[:,2])
-        x3 = self.conc03(concatenate([x3, pre3]))
-        x3 = self.output_03(x3)
+        x3 = self.dense03(x[0][:, 13])
+        pre3 = self.dense03_(pre[:, 2])
+        x3_ = self.conc03(concatenate([x3, pre3, x2_]))
+        x3 = self.output_03(x3_)
 
-        x4 = self.dense04(x[0][:,15])
-        pre4 = self.dense04_(pre[:,3])
-        x4 = self.conc04(concatenate([x4, pre4]))
-        x4 = self.output_04(x4)
+        x4 = self.dense04(x[0][:, 15])
+        pre4 = self.dense04_(pre[:, 3])
+        x4_ = self.conc04(concatenate([x4, pre4, x3_]))
+        x4 = self.output_04(x4_)
 
-        x5 = self.dense05(x[0][:,17])
-        pre5 = self.dense05_(pre[:,4])
-        x5 = self.conc05(concatenate([x5, pre5]))
-        x5 = self.output_05(x5)
+        x5 = self.dense05(x[0][:, 17])
+        pre5 = self.dense05_(pre[:, 4])
+        x5_ = self.conc05(concatenate([x5, pre5, x4_]))
+        x5 = self.output_05(x5_)
 
-        x6 = self.dense06(x[0][:,19])
-        pre6 = self.dense06_(pre[:,5])
-        x6 = self.conc06(concatenate([x6, pre6]))
-        x6 = self.output_06(x6)
+        x6 = self.dense06(x[0][:, 19])
+        pre6 = self.dense06_(pre[:, 5])
+        x6_ = self.conc06(concatenate([x6, pre6, x5_]))
+        x6 = self.output_06(x6_)
 
         return tf.stack([x1, x2, x3, x4, x5, x6], axis=1)
 
 
 # %%
-boatdataset = Sanren6_6()
+boatdataset = Sanren6_6(0.9)
 boatdataset.set_dataset(batch_size=120)
 # %%
 boatdataset.model = RNN_Boat_Bert()
@@ -203,16 +202,15 @@ boatdataset.model.load_weights('datas/best_sanren1_6')
 pred = boatdataset.model.predict(boatdataset.valid)
 y = boatdataset.y_valid
 
-mx = np.expand_dims(np.max(pred,axis=2), 2)
+mx = np.expand_dims(np.max(pred, axis=2), 2)
 
-win = ((pred - mx)==0)*y
-win = np.sum(win,axis=2)
+win = ((pred - mx) == 0)*y
+win = np.sum(win, axis=2)
 
-print(np.sum(win[:,0])/len(win))
-print(np.sum(win[:,1])/len(win))
-print(np.sum(win[:,2])/len(win))
-print(np.sum(win[:,3])/len(win))
-print(np.sum(win[:,4])/len(win))
-print(np.sum(win[:,5])/len(win))
+print(np.sum(win[:, 0])/len(win))
+print(np.sum(win[:, 1])/len(win))
+print(np.sum(win[:, 2])/len(win))
+print(np.sum(win[:, 3])/len(win))
+print(np.sum(win[:, 4])/len(win))
+print(np.sum(win[:, 5])/len(win))
 # %%
-(np.sum(win[:,0])/len(win))*(np.sum(win[:,1])/len(win))*(np.sum(win[:,2])/len(win))
