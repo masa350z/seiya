@@ -2,6 +2,7 @@
 import boatdata
 import numpy as np
 from keras import layers
+from tqdm import tqdm
 import tensorflow as tf
 
 
@@ -159,6 +160,26 @@ class BoatNN(boatdata.BoatDataset):
         self.test_dataset3 = tf.data.Dataset.zip((self.test_x, self.test_y3))
 
 
+class FullyConnected(tf.keras.Model):
+    def __init__(self, units):
+        super(FullyConnected, self).__init__()
+
+        self.layer01 = layers.Dense(units, activation='relu')
+        self.layer02 = layers.Dense(units, activation='relu')
+        self.layer03 = layers.Dense(units, activation='relu')
+        self.layer04 = layers.Dense(units, activation='relu')
+        self.layer05 = layers.Dense(units, activation='relu')
+
+    def call(self, input):
+        x = self.layer01(input)
+        x = self.layer02(x)
+        x = self.layer03(x)
+        x = self.layer04(x)
+        x = self.layer05(x)
+
+        return x
+
+
 class SEIYA(tf.keras.Model):
     def __init__(self, feature_dim):
         super(SEIYA, self).__init__()
@@ -179,17 +200,10 @@ class SEIYA(tf.keras.Model):
         self.grades_embedding = layers.Dense(feature_dim, activation='relu')
         self.condition_embedding = layers.Dense(feature_dim, activation='relu')
 
-        self.racers_layer01 = layers.Dense(1024, activation='relu')
-        self.racers_layer02 = layers.Dense(512, activation='relu')
-
-        self.fields_layer01 = layers.Dense(1024, activation='relu')
-        self.fields_layer02 = layers.Dense(512, activation='relu')
-
-        self.odds_layer01 = layers.Dense(1024, activation='relu')
-        self.odds_layer02 = layers.Dense(512, activation='relu')
-
-        self.combo_layer01 = layers.Dense(1024, activation='relu')
-        self.combo_layer02 = layers.Dense(512, activation='relu')
+        self.racers_layer = FullyConnected(feature_dim)
+        self.fields_layer = FullyConnected(feature_dim)
+        self.odds_layer = FullyConnected(feature_dim)
+        self.combo_layer = FullyConnected(feature_dim)
 
         self.output_layer01 = layers.Dense(6, activation='softmax')
 
@@ -205,8 +219,7 @@ class SEIYA(tf.keras.Model):
         #racers = layers.Flatten()(layers.concatenate([racers, course, r_ze, r_to, tenji, start], axis=2))
         #racers = layers.Flatten()(layers.concatenate([racers + course, r_ze, r_to, tenji, start], axis=2))
         racers = layers.Flatten()(racers + course + r_ze + r_to + tenji + start)
-        racers = self.racers_layer01(racers)
-        racers = self.racers_layer02(racers)
+        racers = self.racers_layer(racers)
 
         fields = self.field_embedding(fields)
         weather = self.weather_embedding(weather)
@@ -218,15 +231,12 @@ class SEIYA(tf.keras.Model):
 
         #fields = layers.concatenate([fields, weather, wind, grades, conditions], axis=1)
         fields = fields + weather + wind + grades + conditions
-        fields = self.fields_layer01(fields)
-        fields = self.fields_layer02(fields)
+        fields = self.fields_layer(fields)
 
-        odds = self.odds_layer01(sanren_odds)
-        odds = self.odds_layer02(odds)
+        odds = self.odds_layer(sanren_odds)
 
         combo = layers.concatenate([racers, fields, odds], axis=1)
-        combo = self.combo_layer01(combo)
-        combo = self.combo_layer02(combo)
+        combo = self.combo_layer(combo)
 
         out01 = self.output_layer01(combo)
 
@@ -237,7 +247,7 @@ class SEIYA(tf.keras.Model):
 bt = BoatNN(k_std=-1)
 bt.set_dataset(batch_size=120)
 
-feature_dim = 32
+feature_dim = 1024
 model = SEIYA(feature_dim)
 optimizer = tf.keras.optimizers.Adam()
 
@@ -276,49 +286,144 @@ k_freeze = 3
 dataset1 = [bt.train_dataset1, bt.valid_dataset1, bt.test_dataset1, 'datas/pred_1th/best_weights']
 dataset2 = [bt.train_dataset2, bt.valid_dataset2, bt.test_dataset2, 'datas/pred_2th/best_weights']
 dataset3 = [bt.train_dataset3, bt.valid_dataset3, bt.test_dataset3, 'datas/pred_3th/best_weights']
+# %%
+for dataset in [dataset1, dataset2, dataset3]:
+    best_val_loss = float('inf')
 
-dataset = dataset1
+    for i in range(50):
+        model = SEIYA(feature_dim)
+        optimizer = tf.keras.optimizers.Adam()
+        model.compile(optimizer=optimizer,
+                      loss='categorical_crossentropy',
+                      metrics=['accuracy'])
 
-freeze = k_freeze
-best_val_loss = float('inf')
-last_epoch = 0
+        freeze = k_freeze
+        last_epoch = 0
 
-for epoch in range(EPOCHS):
-    if epoch - last_epoch < 10:
-        for (batch, (data_x, data_y)) in enumerate(dataset[0]):
-            loss = train_step(data_x, data_y)
+        for epoch in range(EPOCHS):
+            if epoch - last_epoch < 5:
+                for (batch, (data_x, data_y)) in enumerate(dataset[0]):
+                    loss = train_step(data_x, data_y)
 
-            if batch % 300 == 0:
-                print(f'Epoch {epoch+1} Batch {batch} Loss {loss.numpy():.4f}')
+                    if batch % 300 == 0:
+                        print('')
+                        print(dataset[3])
+                        print(f"Repeat : {i+1}")
+                        print(f"Best valid loss : {best_val_loss}")
+                        print(f'Epoch {epoch+1} Batch {batch} Loss {loss.numpy():.4f}')
 
-                val_loss, val_acc = model.evaluate(dataset[1])
+                        val_loss, val_acc = model.evaluate(dataset[1])
+                        print(f"Valid loss : {val_loss}")
 
-                if val_loss < best_val_loss:
-                    last_epoch = epoch
-                    freeze = 0
-                    best_val_loss = val_loss
-                    best_weights = model.get_weights()
-                    print(f"Valid loss decreased to {val_loss}, saving weights.")
+                        if val_loss < best_val_loss:
+                            last_epoch = epoch
+                            freeze = 0
+                            best_val_loss = val_loss
+                            best_weights = model.get_weights()
+                            print(f"Valid loss decreased to {val_loss}, saving weights.")
 
-                else:
-                    if freeze == 0:
-                        model.set_weights(best_weights)
-                        model_weights_random_init(init_ratio=0.001)
-                        freeze = k_freeze
-                        print("Valid loss did not decrease, loading weights.")
-                    else:
-                        print("Valid loss did not decrease.")
+                        else:
+                            if freeze == 0:
+                                model.set_weights(best_weights)
+                                model_weights_random_init(init_ratio=0.001)
+                                freeze = k_freeze
+                                print("Valid loss did not decrease, loading weights.")
+                            else:
+                                print("Valid loss did not decrease.")
 
-                freeze = freeze - 1 if freeze > 0 else freeze
-    else:
-        break
+                        freeze = freeze - 1 if freeze > 0 else freeze
+            else:
+                pass
+
+            model.set_weights(best_weights)
+            model.save_weights(dataset[3])
 
     model.set_weights(best_weights)
     model.save_weights(dataset[3])
 
+
 # %%
-model.set_weights(best_weights)
-model.evaluate(dataset[1])
+train_1th, valid_1th, test_1th = bt.data_y1
+train_2th, valid_2th, test_2th = bt.data_y2
+train_3th, valid_3th, test_3th = bt.data_y3
+
+print('1th')
+model.load_weights(dataset1[3])
+res_1th = []
+for data in tqdm(dataset1[:3]):
+    for x, y in data:
+        pred = model(x).numpy()
+        for p in pred:
+            res_1th.append(p)
+
+print('2th')
+model.load_weights(dataset2[3])
+res_2th = []
+for data in tqdm(dataset2[:3]):
+    for x, y in data:
+        pred = model(x).numpy()
+        for p in pred:
+            res_2th.append(p)
+
+print('3th')
+model.load_weights(dataset3[3])
+res_3th = []
+for data in tqdm(dataset3[:3]):
+    for x, y in data:
+        pred = model(x).numpy()
+        for p in pred:
+            res_3th.append(p)
+
+
 # %%
-model.evaluate(dataset[2])
+def ret_sanren_onehot(th1, th2, th3):
+    res = []
+    for h in tqdm(range(len(th1))):
+        sanren = []
+        for i in range(6):
+            for j in range(6):
+                for k in range(6):
+                    c1 = i == j
+                    c2 = i == k
+                    c3 = j == k
+                    if not (c1 or c2 or c3):
+                        sanren.append(th1[h][i]*th2[h][j]*th3[h][k])
+        res.append(sanren)
+
+    return res
+
+
+# %%
+sanren_tr = ret_sanren_onehot(train_1th, train_2th, train_3th)
+np.save('datas/sanren_tr.npy', sanren_tr)
+# %%
+sanren_vl = ret_sanren_onehot(valid_1th, valid_2th, valid_3th)
+np.save('datas/sanren_vl.npy', sanren_vl)
+# %%
+sanren_te = ret_sanren_onehot(test_1th, test_2th, test_3th)
+np.save('datas/sanren_te.npy', sanren_te)
+# %%
+sanren_pre = ret_sanren_onehot(res_1th, res_2th, res_3th)
+np.save('datas/sanren_pre.npy', sanren_pre)
+# %%
+sanren_tr = np.load('datas/sanren_tr.npy')
+sanren_vl = np.load('datas/sanren_vl.npy')
+sanren_te = np.load('datas/sanren_te.npy')
+# %%
+sanren_pre = np.load('datas/sanren_pre.npy')
+sanren_pre = sanren_pre/np.sum(sanren_pre, axis=1).reshape(-1, 1)
+# %%
+sanren_pre_tr = sanren_pre[:len(sanren_tr)]
+sanren_pre_vl = sanren_pre[len(sanren_tr):len(sanren_tr)+len(sanren_vl)]
+sanren_pre_te = sanren_pre[len(sanren_tr)+len(sanren_vl):]
+# %%
+sanren_pre_tr.shape
+# %%
+mx = np.max(sanren_pre_tr, axis=1)
+# %%
+a = ((sanren_pre_tr - mx.reshape(-1, 1)) == 0)*sanren_tr
+# %%
+np.sum(a)/len(a)
+# %%
+sanren_pre[:len(sanren_tr)].shape
 # %%
