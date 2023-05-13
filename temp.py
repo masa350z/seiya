@@ -69,7 +69,7 @@ class BoatNN(boatdata.BoatDataset):
 
         self.sanren_odds = np.array(self.sanren_odds, dtype='float32')
 
-    def set_dataset(self, batch_size, buffer_size=150000):
+    def set_dataset(self, batch_size):
         tf_racers = split_data(self.racers)
         tf_grades = split_data(self.ar_grade_num)
         tf_shoritsu_ze = split_data(self.ar_ze)
@@ -134,7 +134,7 @@ class BoatNN(boatdata.BoatDataset):
         self.valid_y = tf.data.Dataset.from_tensor_slices(self.data_y[1]).batch(batch_size)
         self.test_y = tf.data.Dataset.from_tensor_slices(self.data_y[2]).batch(batch_size)
 
-        self.train_dataset = tf.data.Dataset.zip((self.train_x, self.train_y)).shuffle(buffer_size)
+        self.train_dataset = tf.data.Dataset.zip((self.train_x, self.train_y))
         self.valid_dataset = tf.data.Dataset.zip((self.valid_x, self.valid_y))
         self.test_dataset = tf.data.Dataset.zip((self.test_x, self.test_y))
 
@@ -265,12 +265,11 @@ k_freeze = 3
 dataset = [bt.train_dataset, bt.valid_dataset, bt.test_dataset, 'datas/pred_sanren/best_weights']
 # %%
 best_val_loss = float('inf')
-optimizer = tf.keras.optimizers.Adam()
-model = SEIYA(feature_dim)
 
 for i in range(50):
     temp_val_loss = float('inf')
-    model.__init__(feature_dim)
+    model = SEIYA(feature_dim)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=4e-5)
     model.compile(optimizer=optimizer,
                   loss='categorical_crossentropy',
                   metrics=['accuracy'])
@@ -280,38 +279,25 @@ for i in range(50):
 
     for epoch in range(EPOCHS):
         if epoch - last_epoch < 5:
-            for (batch, (data_x, data_y)) in enumerate(dataset[0]):
-                loss = train_step(data_x, data_y)
+            model.fit(dataset[0].shuffle(buffer_size=1500).take(500))
+            val_loss, val_acc = model.evaluate(dataset[1])
 
-                if batch % 500 == 0:
-                    print('')
-                    print(dataset[3])
-                    print(f"Repeat : {i+1}")
-                    print(f"Temp valid loss : {temp_val_loss}")
-                    print(f"Best valid loss : {best_val_loss}")
-                    #print(f'Epoch {epoch+1} Batch {batch} Loss {loss.numpy():.4f}')
+            if val_loss < temp_val_loss:
+                last_epoch = epoch
+                freeze = 0
+                temp_val_loss = val_loss
+                temp_weights = model.get_weights()
 
-                    val_loss, val_acc = model.evaluate(dataset[1])
-                    #print(f"Valid loss : {val_loss}")
+            else:
+                if freeze == 0:
+                    model.set_weights(temp_weights)
+                    model_weights_random_init(init_ratio=0.0001)
+                    freeze = k_freeze
 
-                    if val_loss < temp_val_loss:
-                        last_epoch = epoch
-                        freeze = 0
-                        temp_val_loss = val_loss
-                        temp_weights = model.get_weights()
-                        #print(f"Valid loss decreased to {val_loss}, saving weights.")
-
-                    else:
-                        if freeze == 0:
-                            model.set_weights(temp_weights)
-                            model_weights_random_init(init_ratio=0.0001)
-                            freeze = k_freeze
-                            #print("Valid loss did not decrease, loading weights.")
-                        else:
-                            pass
-                            #print("Valid loss did not decrease.")
-
-                    freeze = freeze - 1 if freeze > 0 else freeze
+            print(f"Repeat : {i+1}")
+            print(f"Temp valid loss : {temp_val_loss}")
+            print(f"Best valid loss : {best_val_loss}")
+            freeze = freeze - 1 if freeze > 0 else freeze
         else:
             pass
 
@@ -327,7 +313,7 @@ for i in range(50):
 model.set_weights(best_weights)
 model.save_weights(dataset[3])
 
-
+# %%
 """
 # %%
 model.load_weights(dataset[3])
