@@ -24,12 +24,11 @@ class BoatDataset:
         self.df = pd.read_csv('datas/boatdata.csv')
         self.read_boatcsv()
 
-        # 正解の3連単オッズ
-        sanren_tan_col = self.df.columns[79:79+120]
-        self.sanren_odds = self.df[sanren_tan_col]
-        # 正解の2連単オッズ
-        niren_tan_col = self.df.columns[79+120+20:79+120+20+30]
-        self.niren_odds = self.df[niren_tan_col]
+        self.sanren_odds = self.ret_all_sanren_odds()
+        self.sanren_odds = np.where(self.sanren_odds==0, 1, self.sanren_odds)
+
+        self.niren_odds = self.ret_all_niren_odds()
+        self.niren_odds = np.where(self.niren_odds==0, 1, self.niren_odds)
 
     def read_boatcsv(self):
         """
@@ -143,15 +142,90 @@ class BoatDataset:
 
         return np.array(sanren_odds_lis)
 
+    def ret_all_sanren_odds(self):
+        sanren_tan_col = self.df.columns[79:79+120]
+        sanren_df = self.df[sanren_tan_col]
+        ar_path = 'datas/sanren_odds.npy'
+        if os.path.exists(ar_path):
+            return np.load(ar_path)
+        else:
+            res = []
+            for h in tqdm(range(len(self.ar_th))):
+                sanren = []
+                for i in range(6):
+                    for j in range(6):
+                        for k in range(6):
+                            c1 = i == j
+                            c2 = i == k
+                            c3 = j == k
+                            if not (c1 or c2 or c3):
+                                odds = sanren_df.iloc[h]['sanren_tan_{}{}{}'.format(i+1, j+1, k+1)]
+                                sanren.append(odds)
+                res.append(sanren)
+            res = np.array(res).astype('float32')
+            np.save(ar_path, res)
+            return res
+
+    def ret_sanren_onehot(self):
+        sanren = []
+        for i in range(6):
+            for j in range(6):
+                for k in range(6):
+                    c1 = i == j
+                    c2 = i == k
+                    c3 = j == k
+                    if not (c1 or c2 or c3):
+                        sanren.append((i+1)*100 + (j+1)*10 + (k+1)*1)
+
+        sanren = np.array(sanren)
+        th123 = self.ar_th[:, 0]*100 + self.ar_th[:, 1]*10 + self.ar_th[:, 2]*1
+        sanren_onehot = (sanren - th123.reshape(-1, 1) == 0)*1
+
+        return sanren_onehot.astype('float32')
+
     def ret_niren_odds(self):
         niren_odds_lis = []
         for i in tqdm(range(len(self.ar_th))):
             num1 = self.ar_th[i][0]
             num2 = self.ar_th[i][1]
-            odds = self.sanren_odds.iloc[i]['niren_tan_{}{}'.format(num1, num2)]
+            odds = self.niren_odds.iloc[i]['niren_tan_{}{}'.format(num1, num2)]
             niren_odds_lis.append(odds)
 
         return np.array(niren_odds_lis)
+
+    def ret_all_niren_odds(self):
+        niren_tan_col = self.df.columns[79+120+20:79+120+20+30]
+        niren_df = self.df[niren_tan_col]
+        ar_path = 'datas/niren_odds.npy'
+        if os.path.exists(ar_path):
+            return np.load(ar_path)
+        else:
+            res = []
+            for h in tqdm(range(len(self.ar_th))):
+                niren = []
+                for i in range(6):
+                    for j in range(6):
+                        if not i == j:
+                            odds = niren_df.iloc[h]['niren_tan_{}{}'.format(i+1, j+1)]
+                            niren.append(odds)
+                res.append(niren)
+            res = np.array(res).astype('float32')
+            np.save(ar_path, res)
+
+            return res
+
+    def ret_niren_onehot(self):
+        niren = []
+        for i in range(6):
+            for j in range(6):
+                if not i == j:
+                    niren.append((i+1)*10 + (j+1)*1)
+
+        niren = np.array(niren)
+        th12 = self.ar_th[:, 0]*10 + self.ar_th[:, 1]*1
+        niren_onehot = (niren - th12.reshape(-1, 1) == 0)*1
+
+        return niren_onehot.astype('float32')
 
     def model_weights_random_init(self, init_ratio=0.0001):
         """
