@@ -1,4 +1,5 @@
 # %%
+import os
 import boatdata
 import numpy as np
 from keras import layers
@@ -19,17 +20,6 @@ def custom_loss2(y_true, y_pred):
     return tf.reduce_mean(tf.reduce_sum(loss, axis=1))
 
 
-def split_data(inp, tr_rate=0.6, val_rate=0.2):
-    train_len = int(len(inp)*tr_rate)
-    valid_len = int(len(inp)*val_rate)
-
-    train = inp[:train_len]
-    valid = inp[train_len:train_len+valid_len]
-    test = inp[train_len+valid_len:]
-
-    return train, valid, test
-
-
 def ret_known_racer(ar_num, unknown_rate=0.5, k_std=-2):
     known_racers, counts = np.unique(ar_num[:-int(len(ar_num)*unknown_rate)],
                                      return_counts=True)
@@ -40,13 +30,6 @@ def ret_known_racer(ar_num, unknown_rate=0.5, k_std=-2):
     known_bool = np.sum(known_bool == 0, axis=0)
 
     return ar_num*known_bool
-
-
-def ret_norm00(ar):
-    mx = np.max(ar)
-    mn = np.min(ar)
-
-    return (ar - mn)/(mx - mn)
 
 
 class BoatNN(boatdata.BoatDataset):
@@ -65,16 +48,16 @@ class BoatNN(boatdata.BoatDataset):
 
         self.conditions = (conditions - mn)/(mx - mn)
 
-        ar_ze1 = ret_norm00(self.ar_ze1).reshape(-1, 6, 1)
-        ar_ze2 = ret_norm00(self.ar_ze2).reshape(-1, 6, 1)
-        ar_ze3 = ret_norm00(self.ar_ze3).reshape(-1, 6, 1)
+        ar_ze1 = np.expand_dims(self.ar_ze1, 1)
+        ar_ze2 = np.expand_dims(self.ar_ze2, 1)
+        ar_ze3 = np.expand_dims(self.ar_ze3, 1)
 
-        ar_to1 = ret_norm00(self.ar_to1).reshape(-1, 6, 1)
-        ar_to2 = ret_norm00(self.ar_to2).reshape(-1, 6, 1)
-        ar_to3 = ret_norm00(self.ar_to3).reshape(-1, 6, 1)
+        ar_to1 = np.expand_dims(self.ar_to1, 1)
+        ar_to2 = np.expand_dims(self.ar_to2, 1)
+        ar_to3 = np.expand_dims(self.ar_to3, 1)
 
-        self.ar_ze = np.concatenate([ar_ze1, ar_ze2, ar_ze3], axis=2)
-        self.ar_to = np.concatenate([ar_to1, ar_to2, ar_to3], axis=2)
+        self.ar_ze = np.concatenate([ar_ze1, ar_ze2, ar_ze3], axis=1)
+        self.ar_to = np.concatenate([ar_to1, ar_to2, ar_to3], axis=1)
 
         mx = np.max(self.tenji_time, axis=1).reshape(-1, 1)
         mn = np.min(self.tenji_time, axis=1).reshape(-1, 1)
@@ -126,14 +109,21 @@ class SEIYA(tf.keras.Model):
         self.weather_embedding = layers.Embedding(6, feature_dim)
         self.wind_embedding = layers.Embedding(36, feature_dim)
 
+        self.r_ze01_embedding = layers.Dense(feature_dim, activation='relu')
+        self.r_ze02_embedding = layers.Dense(feature_dim, activation='relu')
+        self.r_ze03_embedding = layers.Dense(feature_dim, activation='relu')
         self.r_ze_embedding = layers.Dense(feature_dim, activation='relu')
+
+        self.r_to01_embedding = layers.Dense(feature_dim, activation='relu')
+        self.r_to02_embedding = layers.Dense(feature_dim, activation='relu')
+        self.r_to03_embedding = layers.Dense(feature_dim, activation='relu')
         self.r_to_embedding = layers.Dense(feature_dim, activation='relu')
 
         self.tenji_embedding = layers.Dense(feature_dim, activation='relu')
         self.start_embedding = layers.Dense(feature_dim, activation='relu')
 
-        self.racer_encoder01 = transformer.NoEmbeddingEncoder(num_layers=1, d_model=feature_dim*7,
-                                                              num_heads=7, dff=feature_dim,
+        self.racer_encoder01 = transformer.NoEmbeddingEncoder(num_layers=1, d_model=feature_dim*11,
+                                                              num_heads=11, dff=feature_dim,
                                                               max_sequence_len=6)
 
         self.encoder01 = layers.Dense(feature_dim, activation='relu')
@@ -149,8 +139,8 @@ class SEIYA(tf.keras.Model):
 
         self.condition_embedding = layers.Dense(feature_dim, activation='relu')
 
-        self.odds_encoder01 = layers.Dense(36, activation='linear')
-        self.odds_encoder02 = transformer.NoEmbeddingEncoder(num_layers=3, d_model=36,
+        self.odds_encoder01 = layers.Dense(12, activation='linear')
+        self.odds_encoder02 = transformer.NoEmbeddingEncoder(num_layers=3, d_model=12,
                                                              num_heads=6, dff=feature_dim,
                                                              max_sequence_len=120)
         self.odds_encoder03 = layers.Dense(feature_dim, activation='relu')
@@ -167,8 +157,15 @@ class SEIYA(tf.keras.Model):
         racers = self.racers_embedding(racers)
         course = self.course_embedding(course)
         grades = self.grade_embedding(grades)
-        r_ze = self.r_ze_embedding(r_ze)
-        r_to = self.r_to_embedding(r_to)
+
+        r_ze01 = self.r_ze01_embedding(tf.expand_dims(r_ze[:, 0], 2))
+        r_ze02 = self.r_ze02_embedding(tf.expand_dims(r_ze[:, 1], 2))
+        r_ze03 = self.r_ze03_embedding(tf.expand_dims(r_ze[:, 2], 2))
+
+        r_to01 = self.r_to01_embedding(tf.expand_dims(r_to[:, 0], 2))
+        r_to02 = self.r_to02_embedding(tf.expand_dims(r_to[:, 1], 2))
+        r_to03 = self.r_to03_embedding(tf.expand_dims(r_to[:, 2], 2))
+
         tenji = self.tenji_embedding(tf.expand_dims(tenji, 2))
         start = self.start_embedding(tf.expand_dims(start, 2))
 
@@ -176,8 +173,12 @@ class SEIYA(tf.keras.Model):
             racer_vector = layers.concatenate([tf.expand_dims(racers[:, num], 1),
                                                tf.expand_dims(course[:, num], 1),
                                                tf.expand_dims(grades[:, num], 1),
-                                               tf.expand_dims(r_ze[:, num], 1),
-                                               tf.expand_dims(r_to[:, num], 1),
+                                               tf.expand_dims(r_ze01[:, num], 1),
+                                               tf.expand_dims(r_ze02[:, num], 1),
+                                               tf.expand_dims(r_ze03[:, num], 1),
+                                               tf.expand_dims(r_to01[:, num], 1),
+                                               tf.expand_dims(r_to02[:, num], 1),
+                                               tf.expand_dims(r_to03[:, num], 1),
                                                tf.expand_dims(tenji[:, num], 1),
                                                tf.expand_dims(start[:, num], 1),
                                                ], axis=1)
@@ -288,29 +289,29 @@ class BetModel(tf.keras.Model):
 
         return x
 
-
 # %%
+"""
+bt = BoatNN(unknown_rate=0, k_std=-100000000000)
 race_field = None
-bt = BoatNN(unknown_rate=0, k_std=1)
+
 bt.set_dataset(batch_size=120, race_field=race_field)
 
 EPOCHS = 100
 k_freeze = 3
-feature_dim = 128
+feature_dim = 120
 
-weight_name = 'datas/pred_sanren/best_weights_f{}'.format(str(race_field).zfill(2))
-# %%
+weight_name = 'datas/pred_sanren/all/best_weights'
+os.makedirs('datas/pred_sanren/all', exist_ok=True)
+
 best_val_loss = float('inf')
 
-for i in range(10):
+for i in range(1000):
     temp_val_loss = float('inf')
     model = SEIYA(feature_dim)
     optimizer = tf.keras.optimizers.Adam(learning_rate=2e-4)
     model.compile(optimizer=optimizer,
                   loss='categorical_crossentropy',
                   metrics=['accuracy'])
-    if race_field:
-        model.load_weights('datas/pred_sanren/best_weights')
 
     @tf.function
     def train_step(data_x, data_y):
@@ -341,7 +342,7 @@ for i in range(10):
             for (batch, (data_x, data_y)) in enumerate(bt.train_dataset.shuffle(1500)):
                 loss = train_step(data_x, data_y)
 
-                if batch % 400 == 0:
+                if batch % 600 == 0:
                     val_loss, val_acc = model.evaluate(bt.val_dataset)
 
                     if val_loss < temp_val_loss:
@@ -368,6 +369,99 @@ for i in range(10):
                     freeze = freeze - 1 if freeze > 0 else freeze
 
 # %%
+"""
+# %%
+bt = BoatNN(unknown_rate=0, k_std=-1000000000)
+
+for r in range(24):
+    race_field = r+1
+
+    bt.set_dataset(batch_size=120, race_field=race_field)
+
+    EPOCHS = 100
+    k_freeze = 3
+    feature_dim = 120
+
+    weight_name = 'datas/pred_sanren/f{}/best_weights'.format(str(race_field).zfill(2))
+    os.makedirs('datas/pred_sanren/f{}'.format(str(race_field).zfill(2)), exist_ok=True)
+
+    best_val_loss = float('inf')
+
+    for i in range(10):
+        temp_val_loss = float('inf')
+        model = SEIYA(feature_dim)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=2e-4)
+        model.compile(optimizer=optimizer,
+                    loss='categorical_crossentropy',
+                    metrics=['accuracy'])
+        model.load_weights('datas/pred_sanren/all/best_weights')
+
+        @tf.function
+        def train_step(data_x, data_y):
+            with tf.GradientTape() as tape:
+                loss = tf.keras.losses.CategoricalCrossentropy()(data_y, model(data_x))
+
+            gradients = tape.gradient(loss, model.trainable_variables)
+            optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+
+            return loss
+
+        def model_weights_random_init(init_ratio=0.0001):
+            weights = model.get_weights()
+
+            for i, weight in enumerate(weights):
+                if len(weight.shape) == 2:
+                    rand_mask = np.random.binomial(1, init_ratio, size=weight.shape)
+                    rand_weights = np.random.randn(*weight.shape) * rand_mask
+                    weights[i] = weight * (1 - rand_mask) + rand_weights
+
+            model.set_weights(weights)
+
+        freeze = k_freeze
+        last_epoch = 0
+
+        for epoch in range(EPOCHS):
+            if epoch - last_epoch < 5:
+                for (batch, (data_x, data_y)) in enumerate(bt.train_dataset.shuffle(1500)):
+                    loss = train_step(data_x, data_y)
+
+                    if batch % 40 == 0:
+                        val_loss, val_acc = model.evaluate(bt.val_dataset)
+
+                        if val_loss < temp_val_loss:
+                            last_epoch = epoch
+                            freeze = 0
+                            temp_val_loss = val_loss
+                            temp_weights = model.get_weights()
+
+                            if val_loss < best_val_loss:
+                                best_val_loss = val_loss
+                                model.save_weights(weight_name)
+                        else:
+                            if freeze == 0:
+                                model.set_weights(temp_weights)
+                                model_weights_random_init(init_ratio=0.0001)
+                                freeze = k_freeze
+
+                        print('')
+                        print(weight_name)
+                        print(f"Repeat : {i+1}")
+                        print(f"Temp valid loss : {temp_val_loss}")
+                        print(f"Best valid loss : {best_val_loss}")
+
+                        freeze = freeze - 1 if freeze > 0 else freeze
+
+# %%
+"""
+feature_dim = 120
+bt = BoatNN(unknown_rate=0, k_std=-10000000000000000)
+bt.set_dataset(batch_size=120, race_field=None)
+weight_name = 'datas/pred_sanren/all/best_weights'
+model = SEIYA(feature_dim)
+optimizer = tf.keras.optimizers.Adam(learning_rate=2e-4)
+model.compile(optimizer=optimizer,
+                loss='categorical_crossentropy',
+                metrics=['accuracy'])
 model.load_weights(weight_name)
 # %%
 train_loss, train_acc = model.evaluate(bt.train_dataset)
@@ -394,7 +488,7 @@ model.load_weights(weight_name)
 val_loss, val_acc = model.evaluate(bt.val_dataset)
 val_acc
 # %%
-"""
+
 res = []
 for data in tqdm(dataset[:3]):
     for x, y in data:
