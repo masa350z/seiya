@@ -289,6 +289,272 @@ class BetModel(tf.keras.Model):
 
         return x
 
+
+class SeiyaEncoder(tf.keras.Model):
+    def __init__(self, feature_dim):
+        super(SEIYA, self).__init__()
+
+        self.racers_embedding = layers.Embedding(10000, feature_dim)
+        self.course_embedding = layers.Embedding(6, feature_dim)
+        self.grade_embedding = layers.Embedding(4, feature_dim)
+        self.field_embedding = layers.Embedding(24, feature_dim)
+        self.weather_embedding = layers.Embedding(6, feature_dim)
+        self.wind_embedding = layers.Embedding(36, feature_dim)
+
+        self.r_ze01_embedding = layers.Dense(feature_dim, activation='relu')
+        self.r_ze02_embedding = layers.Dense(feature_dim, activation='relu')
+        self.r_ze03_embedding = layers.Dense(feature_dim, activation='relu')
+        self.r_ze_embedding = layers.Dense(feature_dim, activation='relu')
+
+        self.r_to01_embedding = layers.Dense(feature_dim, activation='relu')
+        self.r_to02_embedding = layers.Dense(feature_dim, activation='relu')
+        self.r_to03_embedding = layers.Dense(feature_dim, activation='relu')
+        self.r_to_embedding = layers.Dense(feature_dim, activation='relu')
+
+        self.tenji_embedding = layers.Dense(feature_dim, activation='relu')
+        self.start_embedding = layers.Dense(feature_dim, activation='relu')
+
+        self.racer_encoder01 = transformer.NoEmbeddingEncoder(num_layers=1, d_model=feature_dim*11,
+                                                              num_heads=11, dff=feature_dim,
+                                                              max_sequence_len=6)
+
+        self.encoder01 = layers.Dense(feature_dim, activation='relu')
+        self.encoder02 = layers.Dense(feature_dim, activation='relu')
+        self.encoder03 = layers.Dense(feature_dim, activation='relu')
+        self.encoder04 = layers.Dense(feature_dim, activation='relu')
+        self.encoder05 = layers.Dense(feature_dim, activation='relu')
+        self.encoder06 = layers.Dense(feature_dim, activation='relu')
+
+        self.racer_encoder02 = layers.Dense(feature_dim, activation='relu')
+        self.field_encoder = layers.Dense(feature_dim, activation='relu')
+        self.odds_encoder = layers.Dense(feature_dim, activation='linear')
+
+        self.condition_embedding = layers.Dense(feature_dim, activation='relu')
+
+        self.odds_encoder01 = layers.Dense(12, activation='linear')
+        self.odds_encoder02 = transformer.NoEmbeddingEncoder(num_layers=3, d_model=12,
+                                                             num_heads=6, dff=feature_dim,
+                                                             max_sequence_len=120)
+        self.odds_encoder03 = layers.Dense(feature_dim, activation='relu')
+
+        self.combo_layer = layers.Dense(120, activation='relu')
+
+    def call(self, input):
+        racers, grades, r_ze, r_to, conditions, course, fields, weather, wind, tenji, start, sanren_odds = input
+
+        racers = self.racers_embedding(racers)
+        course = self.course_embedding(course)
+        grades = self.grade_embedding(grades)
+
+        r_ze01 = self.r_ze01_embedding(tf.expand_dims(r_ze[:, 0], 2))
+        r_ze02 = self.r_ze02_embedding(tf.expand_dims(r_ze[:, 1], 2))
+        r_ze03 = self.r_ze03_embedding(tf.expand_dims(r_ze[:, 2], 2))
+
+        r_to01 = self.r_to01_embedding(tf.expand_dims(r_to[:, 0], 2))
+        r_to02 = self.r_to02_embedding(tf.expand_dims(r_to[:, 1], 2))
+        r_to03 = self.r_to03_embedding(tf.expand_dims(r_to[:, 2], 2))
+
+        tenji = self.tenji_embedding(tf.expand_dims(tenji, 2))
+        start = self.start_embedding(tf.expand_dims(start, 2))
+
+        def ret_racer_vector(num):
+            racer_vector = layers.concatenate([tf.expand_dims(racers[:, num], 1),
+                                               tf.expand_dims(course[:, num], 1),
+                                               tf.expand_dims(grades[:, num], 1),
+                                               tf.expand_dims(r_ze01[:, num], 1),
+                                               tf.expand_dims(r_ze02[:, num], 1),
+                                               tf.expand_dims(r_ze03[:, num], 1),
+                                               tf.expand_dims(r_to01[:, num], 1),
+                                               tf.expand_dims(r_to02[:, num], 1),
+                                               tf.expand_dims(r_to03[:, num], 1),
+                                               tf.expand_dims(tenji[:, num], 1),
+                                               tf.expand_dims(start[:, num], 1),
+                                               ], axis=1)
+            return racer_vector
+
+        racer_vector01 = layers.Flatten()(ret_racer_vector(0))
+        racer_vector02 = layers.Flatten()(ret_racer_vector(1))
+        racer_vector03 = layers.Flatten()(ret_racer_vector(2))
+        racer_vector04 = layers.Flatten()(ret_racer_vector(3))
+        racer_vector05 = layers.Flatten()(ret_racer_vector(4))
+        racer_vector06 = layers.Flatten()(ret_racer_vector(5))
+
+        racer_vectors = layers.concatenate([tf.expand_dims(racer_vector01, 1),
+                                            tf.expand_dims(racer_vector02, 1),
+                                            tf.expand_dims(racer_vector03, 1),
+                                            tf.expand_dims(racer_vector04, 1),
+                                            tf.expand_dims(racer_vector05, 1),
+                                            tf.expand_dims(racer_vector06, 1),
+                                            ], axis=1)
+
+        racers = self.racer_encoder01(racer_vectors)
+
+        racer_vector01 = self.encoder01(racers[:, 0])
+        racer_vector02 = self.encoder02(racers[:, 1])
+        racer_vector03 = self.encoder03(racers[:, 2])
+        racer_vector04 = self.encoder04(racers[:, 3])
+        racer_vector05 = self.encoder05(racers[:, 4])
+        racer_vector06 = self.encoder06(racers[:, 5])
+
+        racers = self.racer_encoder02(layers.concatenate([racer_vector01,
+                                                          racer_vector02,
+                                                          racer_vector03,
+                                                          racer_vector04,
+                                                          racer_vector05,
+                                                          racer_vector06,
+                                                          ]))
+
+        fields = self.field_embedding(fields)
+        weather = self.weather_embedding(weather)
+        wind = self.wind_embedding(wind)
+        conditions = self.condition_embedding(conditions)
+
+        fields = layers.concatenate([fields, weather, wind, conditions])
+        fields = self.field_encoder(fields)
+
+        odds = self.odds_encoder01(tf.expand_dims(sanren_odds, 2))
+        odds = self.odds_encoder02(odds)
+        odds = self.odds_encoder03(layers.Flatten()(odds))
+
+        combo = layers.concatenate([racers, fields, odds])
+        combo = self.combo_layer(combo)
+
+        return self.combo_layer(combo)
+
+
+# %%
+class NNDataSet(boatdata.BoatDataset):
+    def __init__(self, unknown_rate=0.5, k_std=-2, race_field=None):
+        super().__init__(race_field)
+
+        self.racers = ret_known_racer(self.ar_num, unknown_rate, k_std)
+
+        self.weather = self.ar_condition[:, 0].astype('int16')
+        self.wind_vector = self.ar_condition[:, -1].astype('int16')
+
+        conditions = self.ar_condition[:, 1:-1]
+
+        mx = np.max(conditions, axis=0).reshape(1, -1)
+        mn = np.min(conditions, axis=0).reshape(1, -1)
+
+        self.conditions = (conditions - mn)/(mx - mn)
+
+        ar_ze1 = np.expand_dims(self.ar_ze1, 1)
+        ar_ze2 = np.expand_dims(self.ar_ze2, 1)
+        ar_ze3 = np.expand_dims(self.ar_ze3, 1)
+
+        ar_to1 = np.expand_dims(self.ar_to1, 1)
+        ar_to2 = np.expand_dims(self.ar_to2, 1)
+        ar_to3 = np.expand_dims(self.ar_to3, 1)
+
+        self.ar_ze = np.concatenate([ar_ze1, ar_ze2, ar_ze3], axis=1)
+        self.ar_to = np.concatenate([ar_to1, ar_to2, ar_to3], axis=1)
+
+        mx = np.max(self.tenji_time, axis=1).reshape(-1, 1)
+        mn = np.min(self.tenji_time, axis=1).reshape(-1, 1)
+
+        self.tenji_time = (self.tenji_time - mn)/(mx - mn)
+        self.tenji_start_time = np.where(self.tenji_start_time == 1, 0, self.tenji_start_time)
+
+    def ret_datax(self):
+        data_x = tf.data.Dataset.from_tensor_slices((bt.racers, bt.ar_grade_num,
+                                                     bt.ar_ze, bt.ar_to,
+                                                     bt.conditions, bt.ar_incourse_num,
+                                                     bt.ar_field-1, bt.weather-1,
+                                                     bt.wind_vector,
+                                                     bt.tenji_time, bt.tenji_start_time,
+                                                     bt.sanren_odds))
+        
+        return data_x
+
+    def set_dataset(self, batch_size, train_rate=0.6, val_rate=0.2):
+        dataset = tf.data.Dataset.zip((self.data_x, self.data_y))
+
+        dataset_size = tf.data.experimental.cardinality(dataset).numpy()
+        dataset = dataset.shuffle(dataset_size)
+
+        train_size = int(train_rate * dataset_size)
+        val_size = int(val_rate * dataset_size)
+
+        train_dataset = dataset.take(train_size)
+        val_dataset = dataset.skip(train_size).take(val_size)
+        test_dataset = dataset.skip(train_size + val_size)
+
+        self.train_dataset = train_dataset.batch(batch_size)
+        self.val_dataset = val_dataset.batch(batch_size)
+        self.test_dataset = test_dataset.batch(batch_size)
+
+class SanrenDataset(NNDataSet):
+    def __init__(self, unknown_rate=0.5, k_std=-2, race_field=None, sanren_index_array=None):
+        super().__init__(unknown_rate, k_std, race_field)
+        
+        if not sanren_index_array:
+            sorted123 = self.ret_sorted123()
+            self.sanren_index_array = np.array([np.where(sorted123 == i)[0][0] for i in self.sanren_indx])
+        else:
+            self.sanren_index_array = sanren_index_array
+        
+        self.data_x = self.ret_datax()
+
+    def ret_sorted123(self):
+        ar123 = self.ar_th[:, :3]
+        ar123 = ar123[:, 0]*100 + ar123[:, 1]*10 + ar123[:, 2]*1
+        ar123, count123 = np.unique(ar123, return_counts=True)
+
+        sorted123 = ar123[np.argsort(count123)[::-1]]
+        
+        return sorted123
+    
+    def set_datay_onehot(self, output_size=None):
+        data_y = bt.ret_sanren_onehot()
+        
+        if output_size:
+            data_y = data_y[:, self.sanren_index_array][:, :outputsize]
+            
+            other_y = np.sum(data_y, axis=1)==0
+            data_y = np.concatenate([data_y, other_y.reshape(-1, 1)*1], axis=1)
+    
+        self.data_y = tf.data.Dataset.from_tensor_slices(data_y)
+
+    def set_datay_odds(self, output_size=None):
+        data_y_odds = bt.ret_all_sanren_odds()
+        
+        if output_size:
+            data_y_odds = data_y_odds[:, self.sanren_index_array][:, :outputsize]
+            data_y_odds = np.concatenate([data_y_odds, np.ones((len(data_y), 1), dtype='float32')], axis=1)
+    
+        self.data_y = tf.data.Dataset.from_tensor_slices(data_y_odds*data_y)
+    
+
+
+class NirenDataset(NNDataSet):
+    def __init__(self, unknown_rate=0.5, k_std=-2, race_field=None, niren_index_array=None):
+        super().__init__(unknown_rate, k_std, race_field)
+        
+        if not niren_index_array:
+            sorted12 = self.ret_sorted12()
+            self.niren_index_array = np.array([np.where(sorted12 == i)[0][0] for i in self.niren_indx])
+        else:
+            self.niren_index_array = niren_index_array
+
+    def ret_sorted12(self):
+        ar12 = self.ar_th[:, :2]
+        ar12 = ar12[:, 0]*10 + ar12[:, 1]*1
+        ar12, count12 = np.unique(ar12, return_counts=True)
+
+        sorted12 = ar12[np.argsort(count12)[::-1]]
+        
+        return sorted12
+
+# %%
+bt = SanrenDataset(unknown_rate=0, k_std=-10000000000000000)
+# %%
+bt.set_datay_onehot(output_size=10)
+bt.set_dataset(batch_size=120)
+# %%
+y.shape
+# %%
+odds*y
 # %%
 """
 bt = BoatNN(unknown_rate=0, k_std=-100000000000)
@@ -371,6 +637,7 @@ for i in range(1000):
 # %%
 """
 # %%
+"""
 bt = BoatNN(unknown_rate=0, k_std=-1000000000)
 
 for r in range(24):
@@ -451,12 +718,13 @@ for r in range(24):
 
                         freeze = freeze - 1 if freeze > 0 else freeze
 
-# %%
 """
+# %%
+
 feature_dim = 120
 bt = BoatNN(unknown_rate=0, k_std=-10000000000000000)
-bt.set_dataset(batch_size=120, race_field=None)
-weight_name = 'datas/pred_sanren/all/best_weights'
+bt.set_dataset(batch_size=120, race_field=18)
+weight_name = 'datas/pred_sanren/f18/best_weights'
 model = SEIYA(feature_dim)
 optimizer = tf.keras.optimizers.Adam(learning_rate=2e-4)
 model.compile(optimizer=optimizer,
@@ -490,21 +758,15 @@ val_acc
 # %%
 
 res = []
-for data in tqdm(dataset[:3]):
+for data in [bt.train_dataset, bt.val_dataset, bt.test_dataset]:
     for x, y in data:
         pred = model(x).numpy()
         for p in pred:
             res.append(p)
 
 probability = np.array(res)
-
-y_tr, y_vl, y_te = bt.data_y
-
-res_tr = res[:len(y_tr)]
-res_vl = res[len(y_tr):len(y_tr)+len(y_vl)]
-res_te = res[len(y_tr)+len(y_vl):]
 # %%
-kitai = probability*odds_sanren
+kitai = probability*bt.sanren_odds
 # %%
 feature_dim = 120
 bet_model = BetModel(feature_dim)
@@ -658,4 +920,3 @@ np.sum(bet)/len(bet)
 # %%
 bt.ar_th
 # %%
-"""

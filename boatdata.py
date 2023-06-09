@@ -17,18 +17,49 @@ def split_data(inp, tr_rate=0.6, val_rate=0.2):
     return train, valid, test
 
 
+def ret_sanren():
+    sanren = []
+    for i in range(6):
+        for j in range(6):
+            for k in range(6):
+                c1 = i == j
+                c2 = i == k
+                c3 = j == k
+                if not (c1 or c2 or c3):
+                    sanren.append((i+1)*100 + (j+1)*10 + (k+1)*1)
+
+    return np.array(sanren)
+
+
+def ret_niren():
+    niren = []
+    for i in range(6):
+        for j in range(6):
+            if not i == j:
+                niren.append((i+1)*10 + (j+1)*1)
+
+    return np.array(niren)
+
+
 class BoatDataset:
-    def __init__(self):
+    def __init__(self, race_field=None):
 
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         self.df = pd.read_csv('datas/boatdata.csv')
+        self.ar_field = np.array([str(int(ba))[-4:-2] for ba in self.df['index']], dtype='int16')
+        if race_field:
+            self.df = self.df[self.ar_field == race_field].reset_index(drop=True)
+            self.ar_field = np.array([str(int(ba))[-4:-2] for ba in self.df['index']], dtype='int16')
+
         self.read_boatcsv()
-
+        
+        self.sanren_indx = ret_sanren()
         self.sanren_odds = self.ret_all_sanren_odds()
-        self.sanren_odds = np.where(self.sanren_odds==0, 1, self.sanren_odds)
+        self.sanren_odds = np.where(self.sanren_odds == 0, 1, self.sanren_odds)
 
+        self.niren_indx = ret_niren()
         self.niren_odds = self.ret_all_niren_odds()
-        self.niren_odds = np.where(self.niren_odds==0, 1, self.niren_odds)
+        self.niren_odds = np.where(self.niren_odds == 0, 1, self.niren_odds)
 
     def read_boatcsv(self):
         """
@@ -104,8 +135,6 @@ class BoatDataset:
         self.tenji_time = np.array(tenji_time, dtype='float32')
         self.tenji_start_time = np.array(tenji_start_time, dtype='float32')
 
-        self.ar_field = np.array([str(int(ba))[-4:-2] for ba in self.df['index']], dtype='int16')
-
         ar_condition = self.df[['weather',
                                 'temperature',
                                 'water_temperature',
@@ -151,33 +180,17 @@ class BoatDataset:
         else:
             res = []
             for h in tqdm(range(len(self.ar_th))):
-                sanren = []
-                for i in range(6):
-                    for j in range(6):
-                        for k in range(6):
-                            c1 = i == j
-                            c2 = i == k
-                            c3 = j == k
-                            if not (c1 or c2 or c3):
-                                odds = sanren_df.iloc[h]['sanren_tan_{}{}{}'.format(i+1, j+1, k+1)]
-                                sanren.append(odds)
-                res.append(sanren)
+                sanren_odds = []
+                for i in self.sanren_indx:
+                    odds = sanren_df.iloc[h]['sanren_tan_{}'.format(i)]
+                    sanren_odds.append(odds)
+                res.append(sanren_odds)
             res = np.array(res).astype('float32')
             np.save(ar_path, res)
             return res
 
     def ret_sanren_onehot(self):
-        sanren = []
-        for i in range(6):
-            for j in range(6):
-                for k in range(6):
-                    c1 = i == j
-                    c2 = i == k
-                    c3 = j == k
-                    if not (c1 or c2 or c3):
-                        sanren.append((i+1)*100 + (j+1)*10 + (k+1)*1)
-
-        sanren = np.array(sanren)
+        sanren = ret_sanren()
         th123 = self.ar_th[:, 0]*100 + self.ar_th[:, 1]*10 + self.ar_th[:, 2]*1
         sanren_onehot = (sanren - th123.reshape(-1, 1) == 0)*1
 
@@ -202,26 +215,18 @@ class BoatDataset:
         else:
             res = []
             for h in tqdm(range(len(self.ar_th))):
-                niren = []
-                for i in range(6):
-                    for j in range(6):
-                        if not i == j:
-                            odds = niren_df.iloc[h]['niren_tan_{}{}'.format(i+1, j+1)]
-                            niren.append(odds)
-                res.append(niren)
+                niren_odds = []
+                for i in self.niren_indx:
+                    odds = niren_df.iloc[h]['niren_tan_{}'.format(i)]
+                    niren_odds.append(odds)
+                res.append(niren_odds)
             res = np.array(res).astype('float32')
             np.save(ar_path, res)
 
             return res
 
     def ret_niren_onehot(self):
-        niren = []
-        for i in range(6):
-            for j in range(6):
-                if not i == j:
-                    niren.append((i+1)*10 + (j+1)*1)
-
-        niren = np.array(niren)
+        niren = ret_niren()
         th12 = self.ar_th[:, 0]*10 + self.ar_th[:, 1]*1
         niren_onehot = (niren - th12.reshape(-1, 1) == 0)*1
 
