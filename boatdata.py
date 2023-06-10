@@ -75,13 +75,7 @@ class BoatDataset:
 
         ar_grade = self.df[['grade_1', 'grade_2', 'grade_3',
                             'grade_4', 'grade_5', 'grade_6']]
-        self.ar_grade = np.array(ar_grade)
-
-        self.ar_grade_num = np.where(self.ar_grade == 'A1', 0, self.ar_grade)
-        self.ar_grade_num = np.where(self.ar_grade_num == 'A2', 1, self.ar_grade_num)
-        self.ar_grade_num = np.where(self.ar_grade_num == 'B1', 2, self.ar_grade_num)
-        self.ar_grade_num = np.where(self.ar_grade_num == 'B2', 3, self.ar_grade_num)
-        self.ar_grade_num = self.ar_grade_num.astype('int16')
+        self.ar_grade_num = np.array(ar_grade).astype('int16')
 
         ar_ze1 = self.df[['zenkoku_shoritshu_1', 'zenkoku_shoritshu_2',
                           'zenkoku_shoritshu_3', 'zenkoku_shoritshu_4',
@@ -174,20 +168,13 @@ class BoatDataset:
     def ret_all_sanren_odds(self):
         sanren_tan_col = self.df.columns[79:79+120]
         sanren_df = self.df[sanren_tan_col]
-        ar_path = 'datas/sanren_odds.npy'
-        if os.path.exists(ar_path):
-            return np.load(ar_path)
-        else:
-            res = []
-            for h in tqdm(range(len(self.ar_th))):
-                sanren_odds = []
-                for i in self.sanren_indx:
-                    odds = sanren_df.iloc[h]['sanren_tan_{}'.format(i)]
-                    sanren_odds.append(odds)
-                res.append(sanren_odds)
-            res = np.array(res).astype('float32')
-            np.save(ar_path, res)
-            return res
+
+        col_names = ['sanren_tan_{}'.format(i) for i in self.sanren_indx]
+        selected_data = sanren_df[col_names]
+
+        res = selected_data.values.astype('float32')
+        
+        return res
 
     def ret_sanren_onehot(self):
         sanren = ret_sanren()
@@ -209,21 +196,13 @@ class BoatDataset:
     def ret_all_niren_odds(self):
         niren_tan_col = self.df.columns[79+120+20:79+120+20+30]
         niren_df = self.df[niren_tan_col]
-        ar_path = 'datas/niren_odds.npy'
-        if os.path.exists(ar_path):
-            return np.load(ar_path)
-        else:
-            res = []
-            for h in tqdm(range(len(self.ar_th))):
-                niren_odds = []
-                for i in self.niren_indx:
-                    odds = niren_df.iloc[h]['niren_tan_{}'.format(i)]
-                    niren_odds.append(odds)
-                res.append(niren_odds)
-            res = np.array(res).astype('float32')
-            np.save(ar_path, res)
-
-            return res
+        
+        col_names = ['niren_tan_{}'.format(i) for i in self.niren_indx]
+        selected_data = niren_df[col_names]
+        
+        res = selected_data.values.astype('float32')
+        
+        return res
 
     def ret_niren_onehot(self):
         niren = ret_niren()
