@@ -48,6 +48,7 @@ def get_cose_approach_starttime(soup):
     indx = np.array([np.arange(6)[np.array(cose_approach_list) == i+1][0]
                     for i in range(6)])
     start_time_list = [start_time_list[i] for i in indx]
+    start_time_list = ['0' if i == 'L' else i for i in start_time_list]
     start_time_list = [0 if 'F' in i else float(i) for i in start_time_list]
 
     return cose_approach_list, start_time_list
@@ -100,6 +101,20 @@ def get_odds(url, params):
 def ret_dataframe(input_list, columns, dtype):
     return pd.DataFrame([input_list],
                         columns=columns).astype(dtype)
+
+
+def ret_chakujun_shussohyo_df(chakujun_shussohyo):
+    chakujun, shussohyo = chakujun_shussohyo
+
+    chakujun_col = ['th_{}'.format(i+1) for i in range(6)]
+    chakujun_df = ret_dataframe(chakujun, chakujun_col, 'int16')
+
+    shussohyo_col = ['entry_no_{}'.format(i+1) for i in range(6)]
+    shussohyo_df = ret_dataframe(shussohyo, shussohyo_col, 'int16')
+
+    dfs = [shussohyo_df, chakujun_df]
+
+    return pd.concat(dfs, axis=1)
 
 
 def ret_preinfo_df(preinfo):
@@ -214,7 +229,7 @@ def ret_grade_shouritsu_exinfo_df(grade_shouritsu_exinfo):
 
     ex_boatno_col = []
     for i in range(6):
-        for j in range(12):
+        for j in range(14):
             ex_boatno_col.append('ex_boat_no_{}_{}'.format(i+1, j+1))
 
     ex_boatno_df = ret_dataframe(np.array(ex_boat_list)
@@ -223,7 +238,7 @@ def ret_grade_shouritsu_exinfo_df(grade_shouritsu_exinfo):
 
     ex_cose_col = []
     for i in range(6):
-        for j in range(12):
+        for j in range(14):
             ex_cose_col.append('ex_cose_{}_{}'.format(i+1, j+1))
 
     ex_cose_df = ret_dataframe(np.array(ex_cose_list)
@@ -232,7 +247,7 @@ def ret_grade_shouritsu_exinfo_df(grade_shouritsu_exinfo):
 
     ex_start_col = []
     for i in range(6):
-        for j in range(12):
+        for j in range(14):
             ex_start_col.append('ex_start_{}_{}'.format(i+1, j+1))
 
     ex_start_df = ret_dataframe(np.array(ex_start_list)
@@ -241,7 +256,7 @@ def ret_grade_shouritsu_exinfo_df(grade_shouritsu_exinfo):
 
     ex_result_col = []
     for i in range(6):
-        for j in range(12):
+        for j in range(14):
             ex_result_col.append('ex_result_{}_{}'.format(i+1, j+1))
 
     ex_result_df = ret_dataframe(np.array(ex_result_list)
@@ -395,7 +410,8 @@ class RaceData:
 
             f_l_s = shouritsu_div[0+5*i].text.split('\n')
             f_l_s = [float(z.replace(' ', '').replace('\r', '')
-                           .replace('F', '').replace('L', ''))
+                           .replace('F', '').replace('L', '')
+                           .replace('-', '0'))
                      for z in f_l_s[:3]]
 
             motor123 = shouritsu_div[3+5*i].text.split('\n')
@@ -413,8 +429,10 @@ class RaceData:
             ex_info_div = racers_tbody[i].find_all('tr')
 
             ex_boat_num = [z['class']
-                           for z in ex_info_div[0].find_all('td')[9:9+12]]
-            ex_boat_num = [0 if len(z) == 0 else int(z[0][-1:])
+                           for z in ex_info_div[0].find_all('td')[9:9+14]]
+            ex_boat_num = [0 if len(z) == 0 else z[0]
+                           for z in ex_boat_num]
+            ex_boat_num = [0 if z == 'is-outColor' or z == 0 else int(z[-1:])
                            for z in ex_boat_num]
 
             ex_cose_approach = [int(z.text.replace('\xa0', '0'))
@@ -423,13 +441,16 @@ class RaceData:
             ex_start_time = [float(z.text.replace('\xa0', '0'))
                              for z in ex_info_div[2].find_all('td')]
 
-            ex_result = [0 if z.text == '' else int(z.text)
+            ex_result = [0 if z.text == '' else z.text
                          for z in ex_info_div[3].find_all('td')]
+            ex_result = [7 if z == 'Ｆ' or z == '転' or
+                         z == '妨' or z == '落' or z == '不' else int(z)
+                         for z in ex_result]
 
-            ex_boat_list.append(ex_boat_num[:12])
-            ex_cose_list.append(ex_cose_approach[:12])
-            ex_start_list.append(ex_start_time[:12])
-            ex_result_list.append(ex_result[:12])
+            ex_boat_list.append(ex_boat_num)
+            ex_cose_list.append(ex_cose_approach)
+            ex_start_list.append(ex_start_time)
+            ex_result_list.append(ex_result)
 
         return grade_list, zenkoku_shouritsu_list, touchi_shouritsu_list,\
             f_l_s_list, motor_list, boat_list,\
@@ -534,6 +555,7 @@ class RaceData:
         return oddslist_tansho, oddslist_fukusho
 
     def ret_race_df(self):
+        chakujun_shussohyo = self.get_chakujun_shussohyo()
         preinfo = self.get_preinfo()
         grade_shouritsu_exinfo = self.get_grade_shouritsu_exinfo()
         computer_prediction = self.get_computer_prediction()
@@ -544,13 +566,20 @@ class RaceData:
         kakurenpuku_odds, kakurenpuku_num = self.get_kakurenpuku_odds()
         tansho_odds, fukusho_odds = self.get_tansho_fukusho_odds()
 
-        race_num_df = pd.DataFrame([self.params['hd']], columns=['race_num'])
+        unique_num = int(str(self.params['hd']) +
+                         str(self.params['jcd']).zfill(2) +
+                         str(self.params['rno']).zfill(2))
 
-        preinfo_df = \
-            ret_preinfo_df(preinfo)
+        race_num_df = pd.DataFrame([unique_num], columns=['race_num'])
+
+        chakujun_shussohyo_df = \
+            ret_chakujun_shussohyo_df(chakujun_shussohyo)
 
         grade_shouritsu_exinfo_df = \
             ret_grade_shouritsu_exinfo_df(grade_shouritsu_exinfo)
+
+        preinfo_df = \
+            ret_preinfo_df(preinfo)
 
         computer_prediction_df = \
             ret_computer_prediction_df(computer_prediction)
@@ -564,29 +593,10 @@ class RaceData:
                         tansho_odds, fukusho_odds)
 
         race_df = pd.concat([race_num_df,
-                            preinfo_df,
-                            grade_shouritsu_exinfo_df,
-                            computer_prediction_df,
-                            odds_df], axis=1)
+                             chakujun_shussohyo_df,
+                             grade_shouritsu_exinfo_df,
+                             preinfo_df,
+                             computer_prediction_df,
+                             odds_df], axis=1)
 
         return race_df
-
-
-# %%
-field_dic = {'桐生': '01', '戸田': '02', '江戸川': '03',
-             '平和島': '04', '多摩川': '05', '浜名湖': '06',
-             '蒲郡': '07', '常滑': '08', '津': '09',
-             '三国': '10', 'びわこ': '11', '住之江': '12',
-             '尼崎': '13', '鳴門': '14', '丸亀': '15',
-             '児島': '16', '宮島': '17', '徳山': '18',
-             '下関': '19', '若松': '20', '芦屋': '21',
-             '福岡': '22', '唐津': '23', '大村': '24'}
-
-df = pd.read_csv('datas/boatdata.csv')
-# %%
-get_fields(20230609)
-# %%
-inpdate, field_num, race_num = 20230609, 1, 6
-racedata = RaceData(inpdate, field_num, race_num)
-race_df = racedata.ret_race_df()
-# %%
