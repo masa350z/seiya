@@ -281,25 +281,32 @@ def ret_odds_df(sanrentan_odds, sanrentan_num,
                 tansho_odds, fukusho_odds):
 
     sanrentan_col = ['sanrentan_{}'.format(i) for i in sanrentan_num]
-    sanrentan_df = ret_dataframe(sanrentan_odds, sanrentan_col, 'float32')
+    sanrentan_df = ret_dataframe(sanrentan_odds,
+                                 sanrentan_col, 'float32')
 
     sanrenpuku_col = ['sanrenpuku_{}'.format(i) for i in sanrenpuku_num]
-    sanrenpuku_df = ret_dataframe(sanrenpuku_odds, sanrenpuku_col, 'float32')
+    sanrenpuku_df = ret_dataframe(sanrenpuku_odds,
+                                  sanrenpuku_col, 'float32')
 
     nirentan_col = ['nirentan_{}'.format(i) for i in nirentan_num]
-    nirentan_df = ret_dataframe(nirentan_odds, nirentan_col, 'float32')
+    nirentan_df = ret_dataframe(nirentan_odds,
+                                nirentan_col, 'float32')
 
     nirenpuku_col = ['nirenpuku_{}'.format(i) for i in nirenpuku_num]
-    nirenpuku_df = ret_dataframe(nirenpuku_odds, nirenpuku_col, 'float32')
+    nirenpuku_df = ret_dataframe(nirenpuku_odds,
+                                 nirenpuku_col, 'float32')
 
     kakurenpuku_col = ['kakurenpuku_{}'.format(i) for i in kakurenpuku_num]
-    kakurenpuku_df = ret_dataframe(kakurenpuku_odds, kakurenpuku_col, 'float32')
+    kakurenpuku_df = ret_dataframe(kakurenpuku_odds,
+                                   kakurenpuku_col, 'float32')
 
     tansho_col = ['tansho_{}'.format(i+1) for i in range(6)]
-    tansho_df = ret_dataframe(tansho_odds, tansho_col, 'float32')
+    tansho_df = ret_dataframe(tansho_odds,
+                              tansho_col, 'float32')
 
     fukusho_col = ['fukusho_{}'.format(i+1) for i in range(6)]
-    fukusho_df = ret_dataframe(fukusho_odds, fukusho_col, 'float32')
+    fukusho_df = ret_dataframe(fukusho_odds,
+                               fukusho_col, 'float32')
 
     dfs = [sanrentan_df, sanrenpuku_df, nirentan_df, nirenpuku_df,
            kakurenpuku_df, tansho_df, fukusho_df]
