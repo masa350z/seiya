@@ -73,9 +73,12 @@ def get_field_condition(soup):
                    .split('is-wind')[1].split('"')[0])
 
     wind_water_div = wether_div.find_all('span')
-    tempreture = float(wind_water_div[1].text.split('℃')[0])
+
+    tempreture = float(wind_water_div[1].text.split('℃')[0]
+                       .replace('в„ғ', '').replace('вДГ', ''))
     wind_speed = float(wind_water_div[4].text.split('m')[0])
-    water_tempreture = float(wind_water_div[6].text.split('℃')[0])
+    water_tempreture = float(wind_water_div[6].text.split('℃')[0]
+                             .replace('в„ғ', '').replace('вДГ', ''))
     water_hight = float(wind_water_div[8].text.split('cm')[0])
 
     return wether_num, wind_num, tempreture, wind_speed, \
@@ -415,11 +418,13 @@ class RaceData:
                      for z in f_l_s[:3]]
 
             motor123 = shouritsu_div[3+5*i].text.split('\n')
-            motor123 = [float(z.replace(' ', '').replace('\r', ''))
+            motor123 = [float(z.replace(' ', '').replace('\r', '')
+                              .replace('-', '0'))
                         for z in motor123[:3]]
 
             boat123 = shouritsu_div[4+5*i].text.split('\n')
-            boat123 = [float(z.replace(' ', '').replace('\r', ''))
+            boat123 = [float(z.replace(' ', '').replace('\r', '')
+                             .replace('-', '0'))
                        for z in boat123[:3]]
 
             f_l_s_list.append(f_l_s)
@@ -444,7 +449,9 @@ class RaceData:
             ex_result = [0 if z.text == '' else z.text
                          for z in ex_info_div[3].find_all('td')]
             ex_result = [7 if z == 'Ｆ' or z == '転' or
-                         z == '妨' or z == '落' or z == '不' else int(z)
+                         z == '妨' or z == '落' or
+                         z == '不' or z == 'エ' or
+                         z == '沈' or z == 'Ｌ' or z == '欠' else int(z)
                          for z in ex_result]
 
             ex_boat_list.append(ex_boat_num)
