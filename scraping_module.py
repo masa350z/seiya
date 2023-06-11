@@ -451,7 +451,8 @@ class RaceData:
             ex_result = [7 if z == 'Ｆ' or z == '転' or
                          z == '妨' or z == '落' or
                          z == '不' or z == 'エ' or
-                         z == '沈' or z == 'Ｌ' or z == '欠' else int(z)
+                         z == '沈' or z == 'Ｌ' or
+                         z == '欠' or z == '失' else int(z)
                          for z in ex_result]
 
             ex_boat_list.append(ex_boat_num)

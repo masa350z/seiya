@@ -9,8 +9,8 @@ import scraping_module as sc
 
 def checkDate(year, month, day):
     try:
-        newDataStr="%04d/%02d/%02d"%(year,month,day)
-        newDate=datetime.datetime.strptime(newDataStr,"%Y/%m/%d")
+        newDataStr = "%04d/%02d/%02d"%(year, month, day)
+        newDate = datetime.datetime.strptime(newDataStr, "%Y/%m/%d")
         return True
     except ValueError:
         return False
@@ -27,45 +27,41 @@ field_dic = {'桐生': '01', '戸田': '02', '江戸川': '03',
 # %%
 args = sys.argv
 
-d = int(args[1])
+year = int(args[1])
+d = int(args[2])
 
-data_path = 'datas/boatdata_{}.csv'.format(d)
-temp_df = pd.read_csv('datas/boatdata_temp.csv')
-temp_indx = list(temp_df['race_num'])
+data_path = 'datas/boatdata_{}_{}.csv'.format(year, d+1)
 # %%
 if os.path.exists(data_path):
     dataframe = pd.read_csv(data_path)
 else:
     dataframe = pd.DataFrame({})
 
-for year in [2017, 2018, 2019, 2020, 2021, 2022, 2023]:
-    for m in range(12):
-        if checkDate(year, m+1, d+1):
-            try:
-                inpdate = int('{}{}{}'.format(year,
-                                              str(m+1).zfill(2),
-                                              str(d+1).zfill(2)))
-                for f in sc.get_fields(inpdate):
-                    field_num = int(field_dic[f])
-                    for r in range(12):
-                        race_num = r + 1
-                        unique_num = int(str(inpdate) +
-                                         str(field_num).zfill(2) +
-                                         str(race_num).zfill(2))
-                        race_indx = [] if len(dataframe) == 0 \
-                            else list(dataframe['race_num'])
-                        if not (unique_num in race_indx
-                                or unique_num in temp_indx):
-                            racedata = sc.RaceData(inpdate,
-                                                   field_num,
-                                                   race_num)
-                            race_df = racedata.ret_race_df()
+for m in range(12):
+    if checkDate(year, m+1, d+1):
+        try:
+            inpdate = int('{}{}{}'.format(year,
+                                          str(m+1).zfill(2),
+                                          str(d+1).zfill(2)))
+            for f in sc.get_fields(inpdate):
+                field_num = int(field_dic[f])
+                for r in range(12):
+                    race_num = r + 1
+                    unique_num = int(str(inpdate) +
+                                     str(field_num).zfill(2) +
+                                     str(race_num).zfill(2))
+                    race_indx = [] if len(dataframe) == 0 \
+                        else list(dataframe['race_num'])
+                    if not (unique_num in race_indx):
+                        racedata = sc.RaceData(inpdate,
+                                               field_num,
+                                               race_num)
+                        race_df = racedata.ret_race_df()
 
-                            dataframe = pd.concat([dataframe, race_df])
-                            dataframe.to_csv(data_path, index=False)
+                        dataframe = pd.concat([dataframe, race_df])
+                        dataframe.to_csv(data_path, index=False)
 
-                            print(unique_num)
-            except Exception as e:
-                print(e)
-                time.sleep(10)
+                        print(unique_num)
+        except Exception as e:
+            print(e)
 # %%
