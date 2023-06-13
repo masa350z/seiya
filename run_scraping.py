@@ -46,22 +46,25 @@ for m in range(12):
             for f in sc.get_fields(inpdate):
                 field_num = int(field_dic[f])
                 for r in range(12):
-                    race_num = r + 1
-                    unique_num = int(str(inpdate) +
-                                     str(field_num).zfill(2) +
-                                     str(race_num).zfill(2))
-                    race_indx = [] if len(dataframe) == 0 \
-                        else list(dataframe['race_num'])
-                    if not (unique_num in race_indx):
-                        racedata = sc.RaceData(inpdate,
-                                               field_num,
-                                               race_num)
-                        race_df = racedata.ret_race_df()
+                    try:
+                        race_num = r + 1
+                        unique_num = int(str(inpdate) +
+                                         str(field_num).zfill(2) +
+                                         str(race_num).zfill(2))
+                        race_indx = [] if len(dataframe) == 0 \
+                            else list(dataframe['race_num'])
+                        if not (unique_num in race_indx):
+                            racedata = sc.RaceData(inpdate,
+                                                   field_num,
+                                                   race_num)
+                            race_df = racedata.ret_race_df()
 
-                        dataframe = pd.concat([dataframe, race_df])
-                        dataframe.to_csv(data_path, index=False)
+                            dataframe = pd.concat([dataframe, race_df])
+                            dataframe.to_csv(data_path, index=False)
 
-                        print(unique_num)
+                            print(unique_num)
+                    except Exception as e:
+                        print(e)
         except Exception as e:
             print(e)
 # %%
