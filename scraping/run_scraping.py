@@ -30,7 +30,7 @@ args = sys.argv
 year = int(args[1])
 d = int(args[2])
 
-data_path = 'datas/boatdata_{}_{}.csv'.format(year, d+1)
+data_path = '../datas/boatdata_{}_{}.csv'.format(year, d+1)
 # %%
 if os.path.exists(data_path):
     dataframe = pd.read_csv(data_path)
