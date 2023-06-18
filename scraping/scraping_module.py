@@ -512,7 +512,7 @@ class RaceData:
         chakujun = []
         for i in range(6):
             if table[1+4*i].text in ['1', '2', '3', '4', '5', '6']:  # 着順が1〜6の場合のみ追加
-                chakujun.append(int(table[1+4*i].text)) # 着順をリストに追加
+                chakujun.append(int(table[1+4*i].text))  # 着順をリストに追加
 
         shussohyo = []
         for i in ['1', '2', '3', '4', '5', '6']:

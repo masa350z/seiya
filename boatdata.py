@@ -1,12 +1,21 @@
 # %%
-from transformers import BertTokenizer
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
-import os
 
 
 def split_data(inp, tr_rate=0.6, val_rate=0.2):
+    """
+    データをトレーニングデータ、バリデーションデータ、テストデータに分割する関数
+
+    Args:
+        inp (array-like): 入力データ
+        tr_rate (float): トレーニングデータの割合（デフォルト値: 0.6)
+        val_rate (float): バリデーションデータの割合（デフォルト値: 0.2)
+
+    Returns:
+        tuple: トレーニングデータ、バリデーションデータ、テストデータのタプル
+    """
     train_len = int(len(inp)*tr_rate)
     valid_len = int(len(inp)*val_rate)
 
@@ -18,6 +27,12 @@ def split_data(inp, tr_rate=0.6, val_rate=0.2):
 
 
 def ret_sanren():
+    """
+    3連単の番号リストを返す関数
+
+    Returns:
+        ndarray: 3連単の番号リスト
+    """
     sanren = []
     for i in range(6):
         for j in range(6):
@@ -32,6 +47,12 @@ def ret_sanren():
 
 
 def ret_niren():
+    """
+    2連単の番号リストを返す関数
+
+    Returns:
+        ndarray: 2連単の番号リスト
+    """
     niren = []
     for i in range(6):
         for j in range(6):
@@ -41,192 +62,251 @@ def ret_niren():
     return np.array(niren)
 
 
-class BoatDataset:
+class BoatData:
     def __init__(self, race_field=None):
-
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         self.df = pd.read_csv('datas/boatdata.csv')
-        self.ar_field = np.array([str(int(ba))[-4:-2] for ba in self.df['index']], dtype='int16')
-        if race_field:
-            self.df = self.df[self.ar_field == race_field].reset_index(drop=True)
-            self.ar_field = np.array([str(int(ba))[-4:-2] for ba in self.df['index']], dtype='int16')
+        self.ar_field, self.df = self.ret_field(race_field)
 
-        self.read_boatcsv()
-        
+    def ret_field(self, race_field):
+        ar_field = np.array([str(int(ba))[-4:-2]
+                            for ba in self.df['race_num']],
+                            dtype='int16')
+        if race_field:
+            df = self.df[ar_field == race_field].reset_index(drop=True)
+            ar_field = np.array([str(int(ba))[-4:-2]
+                                for ba in df['race_num']],
+                                dtype='int16')
+
+        return ar_field, df
+
+    def ret_entryno_th_grade(self):
+        entry_no = self.df[['entry_no_1', 'entry_no_2', 'entry_no_3',
+                            'entry_no_4', 'entry_no_5', 'entry_no_6']]
+        entry_no = np.array(entry_no, dtype='int16')
+
+        th = self.df[['th_1', 'th_2', 'th_3',
+                      'th_4', 'th_5', 'th_6']]
+        th = np.array(th, dtype='int16')
+
+        grade = self.df[['grade_1', 'grade_2', 'grade_3',
+                         'grade_4', 'grade_5', 'grade_6']]
+        grade = np.array(grade).astype('int16')
+
+        return entry_no, th, grade
+
+    def ret_shouritsu(self):
+        zenkoku_touchi = []
+        for shouritsu_range in ['zenkoku', 'touchi']:
+            shouritsu = []
+            for i in range(6):
+                shouritsu_x = self.df[['{}_shouritsu_{}'.format(shouritsu_range, i+1),
+                                       '{}_nirenritsu_{}'.format(shouritsu_range, i+1),
+                                       '{}_sanrenritsu_{}'.format(shouritsu_range, i+1)]]
+                shouritsu_x = np.array(shouritsu_x, dtype='float32')
+
+                shouritsu.append(shouritsu_x)
+
+            shouritsu = np.array(shouritsu)
+            shouritsu = shouritsu.transpose(1, 0, 2)
+
+            zenkoku_touchi.append(shouritsu)
+
+        return zenkoku_touchi
+
+    def ret_flying_latestart(self):
+        flying_latestart = []
+        for i in range(6):
+            f_l = self.df[['flying_count_{}'.format(i+1),
+                           'latestart_count_{}'.format(i+1)]]
+            f_l = np.array(f_l, dtype='int16')
+
+            flying_latestart.append(f_l)
+
+        flying_latestart = np.array(flying_latestart)
+        flying_latestart = flying_latestart.transpose(1, 0, 2)
+
+        return flying_latestart
+
+    def ret_average_starttime(self):
+        average_start_time = []
+        for i in range(6):
+            a_s_t = self.df['average_start_time_{}'.format(i+1)]
+            a_s_t = np.array(a_s_t, dtype='float32')
+
+            average_start_time.append(a_s_t)
+
+        average_start_time = np.array(average_start_time)
+        average_start_time = average_start_time.transpose(1, 0)
+
+        return average_start_time
+
+    def ret_motor_boat_no(self):
+        motor_boat_no = []
+        for i in range(6):
+            m_b_t = self.df[['motor_no_{}'.format(i+1),
+                             'boat_no_{}'.format(i+1)]]
+            m_b_t = np.array(m_b_t, dtype='int16')
+
+            motor_boat_no.append(m_b_t)
+
+        motor_boat_no = np.array(motor_boat_no)
+        motor_boat_no = motor_boat_no.transpose(1, 0, 2)
+
+        return motor_boat_no
+
+    def ret_motor_boat_shouritsu(self):
+        motor_boat = []
+        for m_b in ['motor', 'boat']:
+            motor_boat_shouritsu = []
+            for i in range(6):
+                m_b_s = self.df[['{}_nirenritsu_{}'.format(m_b, i+1),
+                                 '{}_sanrenritsu_{}'.format(m_b, i+1)]]
+                m_b_s = np.array(m_b_s, dtype='float32')
+
+                motor_boat_shouritsu.append(m_b_s)
+
+            motor_boat_shouritsu = np.array(motor_boat_shouritsu)
+            motor_boat_shouritsu = motor_boat_shouritsu.transpose(1, 0, 2)
+
+            motor_boat.append(motor_boat_shouritsu)
+
+        return motor_boat
+
+    def ret_ex_data(self):
+        ex_data = []
+        for i in range(6):
+            temp = []
+            for j in range(14):
+                ex_no_cose_start_result = self.df[['ex_boat_no_{}_{}'.format(i+1, j+1),
+                                                   'ex_cose_{}_{}'.format(i+1, j+1),
+                                                   'ex_start_{}_{}'.format(i+1, j+1),
+                                                   'ex_result_{}_{}'.format(i+1, j+1)]]
+                ex_no_cose_start_result = np.array(ex_no_cose_start_result, dtype='float32')
+
+                temp.append(ex_no_cose_start_result)
+            ex_data.append(temp)
+
+        ex_data = np.array(ex_data)
+        ex_data = ex_data.transpose(2, 0, 3, 1)
+
+        ex_no = ex_data[:, :, 0].astype('int16')
+        ex_cose = ex_data[:, :, 1].astype('int16')
+        ex_start = ex_data[:, :, 2]
+        ex_result = ex_data[:, :, 3].astype('int16')
+
+        return ex_no, ex_cose, ex_start, ex_result
+
+    def ret_incose(self):
+        in_cose = []
+        for i in range(6):
+            cose = self.df['cose_{}'.format(i+1)]
+            cose = np.array(cose, dtype='int16')
+
+            in_cose.append(cose)
+
+        in_cose = np.array(in_cose)
+        in_cose = in_cose.transpose(1, 0)
+
+        return in_cose
+
+    def ret_start_tenji(self):
+        start_tenji = []
+        for i in range(6):
+            time = self.df[['start_time_{}'.format(i+1),
+                            'tenji_time_{}'.format(i+1)]]
+            time = np.array(time, dtype='float32')
+
+            start_tenji.append(time)
+
+        start_tenji = np.array(start_tenji)
+        start_tenji = start_tenji.transpose(1, 0, 2)
+
+        start_time = start_tenji[:, :, 0]
+        tenji_time = start_tenji[:, :, 1]
+
+        return start_time, tenji_time
+
+    def ret_field_condition(self):
+        conditions = self.df[['wether_num',
+                              'wind_num',
+                              'tempreture',
+                              'wind_speed',
+                              'water_tempreture',
+                              'water_hight']]
+        conditions = np.array(conditions, dtype='float32')
+
+        wether = conditions[:, 0].astype('int16')
+        wind = conditions[:, 1].astype('int16')
+        tempreture = conditions[:, 2]
+        wind_speed = conditions[:, 3]
+        water_tempreture = conditions[:, 4]
+        water_hight = conditions[:, 5]
+
+        return wether, wind, tempreture, wind_speed, water_tempreture, water_hight
+
+    def ret_computer_prediction(self):
+        df_col = ['comp_pred_{}'.format(i+1) for i in range(26)]
+        computer_prediction = self.df[df_col]
+        computer_prediction = np.array(computer_prediction, dtype='int16')
+
+        computer_confidence = self.df['comfidence']
+        computer_confidence = np.array(computer_confidence, dtype='int16')
+
+        df_col = ['comp_mark_{}'.format(i+1) for i in range(6)]
+        prediction_mark = np.array(self.df[df_col], dtype='int16')
+
+        return computer_prediction, computer_confidence, prediction_mark
+
+    def ret_sanrentan_odds(self):
+        df_col = ['sanrentan_{}'.format(i) for i in ret_sanren()]
+        odds = self.df[df_col]
+        odds = np.array(odds, dtype='float32')
+
+        return np.where(odds == 0, 1, odds)
+
+    def ret_nirentan_odds(self):
+        df_col = ['nirentan_{}'.format(i) for i in ret_niren()]
+        odds = self.df[df_col]
+        odds = np.array(odds, dtype='float32')
+
+        return np.where(odds == 0, 1, odds)
+
+
+class BoatDataset(BoatData):
+    def __init__(self, race_field=None):
+        super().__init__(race_field)
+
         self.sanren_indx = ret_sanren()
-        self.sanren_odds = self.ret_all_sanren_odds()
-        self.sanren_odds = np.where(self.sanren_odds == 0, 1, self.sanren_odds)
+        self.sanren_odds = self.ret_sanrentan_odds()
 
         self.niren_indx = ret_niren()
-        self.niren_odds = self.ret_all_niren_odds()
-        self.niren_odds = np.where(self.niren_odds == 0, 1, self.niren_odds)
+        self.niren_odds = self.ret_nirentan_odds()
 
-    def read_boatcsv(self):
-        """
-        boatdata.csv の内容を自己の変数に読み込み
-        """
-        ar_num = self.df[['no_1', 'no_2', 'no_3',
-                          'no_4', 'no_5', 'no_6']]
-        self.ar_num = np.array(ar_num, dtype='int16')
+        self.entry_no, self.th, self.grade = self.ret_entryno_th_grade()
 
-        ar_th = self.df[['1th', '2th', '3th',
-                         '4th', '5th', '6th']]
-        self.ar_th = np.array(ar_th, dtype='int16')
+        self.incose = self.ret_incose()
 
-        ar_grade = self.df[['grade_1', 'grade_2', 'grade_3',
-                            'grade_4', 'grade_5', 'grade_6']]
-        self.ar_grade_num = np.array(ar_grade).astype('int16')
+        self.zenkoku_shouritsu, self.touchi_shouritsu = self.ret_shouritsu()
 
-        ar_ze1 = self.df[['zenkoku_shoritshu_1', 'zenkoku_shoritshu_2',
-                          'zenkoku_shoritshu_3', 'zenkoku_shoritshu_4',
-                          'zenkoku_shoritshu_5', 'zenkoku_shoritshu_6']]
-        self.ar_ze1 = np.round(np.array(ar_ze1, dtype='float16'), 0)
+        self.flying_latestart = self.ret_flying_latestart()
 
-        ar_ze2 = self.df[['zenkoku_nirenritshu_1', 'zenkoku_nirenritshu_2',
-                          'zenkoku_nirenritshu_3', 'zenkoku_nirenritshu_4',
-                          'zenkoku_nirenritshu_5', 'zenkoku_nirenritshu_6']]
-        self.ar_ze2 = np.round(np.array(ar_ze2, dtype='float16'), 0)
+        self.average_starttime = self.ret_average_starttime()
 
-        ar_ze3 = self.df[['zenkoku_sanrenritshu_1', 'zenkoku_sanrenritshu_2',
-                          'zenkoku_sanrenritshu_3', 'zenkoku_sanrenritshu_4',
-                          'zenkoku_sanrenritshu_5', 'zenkoku_sanrenritshu_6']]
-        self.ar_ze3 = np.round(np.array(ar_ze3, dtype='float16'), 0)
+        self.motor_boat_no = self.ret_motor_boat_no()
 
-        ar_to1 = self.df[['tochi_shoritshu_1', 'tochi_shoritshu_2',
-                          'tochi_shoritshu_3', 'tochi_shoritshu_4',
-                          'tochi_shoritshu_5', 'tochi_shoritshu_6']]
-        self.ar_to1 = np.round(np.array(ar_to1, dtype='float16'), 0)
+        self.motor_shouritsu, self.boat_shouritsu = self.ret_motor_boat_shouritsu()
 
-        ar_to2 = self.df[['tochi_nirenritshu_1', 'tochi_nirenritshu_2',
-                          'tochi_nirenritshu_3', 'tochi_nirenritshu_4',
-                          'tochi_nirenritshu_5', 'tochi_nirenritshu_6']]
-        self.ar_to2 = np.round(np.array(ar_to2, dtype='float16'), 0)
+        self.ex_no, self.ex_cose, self.ex_start, self.ex_result = self.ret_ex_data()
 
-        ar_to3 = self.df[['tochi_sanrenritshu_1', 'tochi_sanrenritshu_2',
-                          'tochi_sanrenritshu_3', 'tochi_sanrenritshu_4',
-                          'tochi_sanrenritshu_5', 'tochi_sanrenritshu_6']]
-        self.ar_to3 = np.round(np.array(ar_to3, dtype='float16'), 0)
+        self.start_time, self.tenji_time = self.ret_start_tenji()
 
-        ar_incourse = self.df[['entry_course_1_no', 'entry_course_2_no',
-                               'entry_course_3_no', 'entry_course_4_no',
-                               'entry_course_5_no', 'entry_course_6_no']]
-        self.ar_incourse = np.array(ar_incourse, dtype='int16')
+        self.wether, self.wind, self.tempreture, self.wind_speed, self.water_tempreture, self.water_hight = self.ret_field_condition()
 
-        tenji_time = self.df[['tenji_time_1',
-                              'tenji_time_2',
-                              'tenji_time_3',
-                              'tenji_time_4',
-                              'tenji_time_5',
-                              'tenji_time_6']]
+        self.computer_prediction, self.computer_confidence, self.prediction_mark = self.ret_computer_prediction()
 
-        tenji_start_time = self.df[['tenji_start_time_1',
-                                    'tenji_start_time_2',
-                                    'tenji_start_time_3',
-                                    'tenji_start_time_4',
-                                    'tenji_start_time_5',
-                                    'tenji_start_time_6']]
+        self.sanrentan_odds = self.ret_sanrentan_odds()
 
-        self.tenji_time = np.array(tenji_time, dtype='float32')
-        self.tenji_start_time = np.array(tenji_start_time, dtype='float32')
+        self.nirentan_odds = self.ret_nirentan_odds()
 
-        ar_condition = self.df[['weather',
-                                'temperature',
-                                'water_temperature',
-                                'water_hight',
-                                'wind_speed',
-                                'wind_vector']]
-        self.ar_condition = np.round(np.array(ar_condition,
-                                              dtype='float16'), 1)
-
-        c1 = (self.ar_num - self.ar_incourse[:, 0].reshape(-1, 1) == 0)*np.arange(1, 7)
-        c2 = (self.ar_num - self.ar_incourse[:, 1].reshape(-1, 1) == 0)*np.arange(1, 7)
-        c3 = (self.ar_num - self.ar_incourse[:, 2].reshape(-1, 1) == 0)*np.arange(1, 7)
-        c4 = (self.ar_num - self.ar_incourse[:, 3].reshape(-1, 1) == 0)*np.arange(1, 7)
-        c5 = (self.ar_num - self.ar_incourse[:, 4].reshape(-1, 1) == 0)*np.arange(1, 7)
-        c6 = (self.ar_num - self.ar_incourse[:, 5].reshape(-1, 1) == 0)*np.arange(1, 7)
-
-        c1 = np.sum(c1, axis=1).reshape(-1, 1)
-        c2 = np.sum(c2, axis=1).reshape(-1, 1)
-        c3 = np.sum(c3, axis=1).reshape(-1, 1)
-        c4 = np.sum(c4, axis=1).reshape(-1, 1)
-        c5 = np.sum(c5, axis=1).reshape(-1, 1)
-        c6 = np.sum(c6, axis=1).reshape(-1, 1)
-
-        self.ar_incourse_num = np.concatenate([c1, c2, c3, c4, c5, c6], axis=1) - 1
-
-    def ret_sanren_odds(self):
-        sanren_odds_lis = []
-        for i in tqdm(range(len(self.ar_th))):
-            num1 = self.ar_th[i][0]
-            num2 = self.ar_th[i][1]
-            num3 = self.ar_th[i][2]
-            odds = self.sanren_odds.iloc[i]['sanren_tan_{}{}{}'.format(num1, num2, num3)]
-            sanren_odds_lis.append(odds)
-
-        return np.array(sanren_odds_lis)
-
-    def ret_all_sanren_odds(self):
-        sanren_tan_col = self.df.columns[79:79+120]
-        sanren_df = self.df[sanren_tan_col]
-
-        col_names = ['sanren_tan_{}'.format(i) for i in self.sanren_indx]
-        selected_data = sanren_df[col_names]
-
-        res = selected_data.values.astype('float32')
-        
-        return res
-
-    def ret_sanren_onehot(self):
-        sanren = ret_sanren()
-        th123 = self.ar_th[:, 0]*100 + self.ar_th[:, 1]*10 + self.ar_th[:, 2]*1
-        sanren_onehot = (sanren - th123.reshape(-1, 1) == 0)*1
-
-        return sanren_onehot.astype('float32')
-
-    def ret_niren_odds(self):
-        niren_odds_lis = []
-        for i in tqdm(range(len(self.ar_th))):
-            num1 = self.ar_th[i][0]
-            num2 = self.ar_th[i][1]
-            odds = self.niren_odds.iloc[i]['niren_tan_{}{}'.format(num1, num2)]
-            niren_odds_lis.append(odds)
-
-        return np.array(niren_odds_lis)
-
-    def ret_all_niren_odds(self):
-        niren_tan_col = self.df.columns[79+120+20:79+120+20+30]
-        niren_df = self.df[niren_tan_col]
-        
-        col_names = ['niren_tan_{}'.format(i) for i in self.niren_indx]
-        selected_data = niren_df[col_names]
-        
-        res = selected_data.values.astype('float32')
-        
-        return res
-
-    def ret_niren_onehot(self):
-        niren = ret_niren()
-        th12 = self.ar_th[:, 0]*10 + self.ar_th[:, 1]*1
-        niren_onehot = (niren - th12.reshape(-1, 1) == 0)*1
-
-        return niren_onehot.astype('float32')
-
-    def model_weights_random_init(self, init_ratio=0.0001):
-        """
-        モデルの重みをランダムに初期化する関数
-        """
-        # モデルの重みを取得する
-        weights = self.model.get_weights()
-
-        # 重みをランダムに初期化する
-        for i, weight in enumerate(weights):
-            if len(weight.shape) == 2:
-                # 重み行列の場合、init_ratioの割合でランダム初期化する
-                rand_mask = np.random.binomial(1, init_ratio, size=weight.shape)
-                rand_weights = np.random.randn(*weight.shape) * rand_mask
-                weights[i] = weight * (1 - rand_mask) + rand_weights
-
-        # モデルの重みをセットする
-        self.model.set_weights(weights)
 
 # %%
