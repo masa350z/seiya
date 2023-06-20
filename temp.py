@@ -1,54 +1,44 @@
 # %%
+from keras.activations import gelu
+from keras import layers
 import numpy as np
-import pandas as pd
-
-def ret_sanren():
-    """
-    3連単の番号リストを返す関数
-
-    Returns:
-        ndarray: 3連単の番号リスト
-    """
-    sanren = []
-    for i in range(6):
-        for j in range(6):
-            for k in range(6):
-                c1 = i == j
-                c2 = i == k
-                c3 = j == k
-                if not (c1 or c2 or c3):
-                    sanren.append((i+1)*100 + (j+1)*10 + (k+1)*1)
-
-    return np.array(sanren)
-
-
-def ret_niren():
-    """
-    2連単の番号リストを返す関数
-
-    Returns:
-        ndarray: 2連単の番号リスト
-    """
-    niren = []
-    for i in range(6):
-        for j in range(6):
-            if not i == j:
-                niren.append((i+1)*10 + (j+1)*1)
-
-    return np.array(niren)
-
+import tensorflow as tf
+import boat_transformer
+import boatdata
+from keras.initializers import he_uniform
 # %%
-df = pd.read_csv('datas/boatdata.csv')
-df
-# %%
-list(df.columns)
+bt = boatdata.BoatDataset()
+
+entry_no = bt.entry_no
+
+sanren_num = boatdata.ret_sanren()
+
+th123 = np.array(bt.df[['th_1', 'th_2', 'th_3']])
+th123 = th123[:, 0]*100 + th123[:, 1]*10 + th123[:, 2]*1
+
+sanren_one_hot = 1*((sanren_num - th123.reshape(-1, 1)) == 0)
+
+
 # %%
 
 # %%
-df_col = ['nirentan_{}'.format(i) for i in ret_niren()]
-odds = df[df_col]
-odds = np.array(odds, dtype='float32')
+num_layer_loops = 3
+vector_dims = 128
+num_heads = 8
+inner_dims = 120
+model = OddsTransformer(num_layer_loops,
+                                      vector_dims,
+                                      num_heads,
+                                      inner_dims)
+# %%
+#model = FieldEncoder(120)
+# %%
 
+res = model(bt.sanren_odds[:2])
+res
 # %%
-odds
+res
 # %%
+a = model.output_dense(tf.expand_dims(res,2))
+# %%
+a[0][1]
