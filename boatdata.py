@@ -72,6 +72,8 @@ class BoatData:
         self.df = pd.read_csv('datas/boatdata.csv')
         self.ar_field, self.df = self.ret_field(race_field)
 
+        self.ar_field = self.ar_field - 1
+
     def ret_field(self, race_field):
         """
         レース場番号に基づいてデータをフィルタリングするメソッド
@@ -415,6 +417,4 @@ class BoatDataset(BoatData):
         self.nirentan_odds = self.ret_nirentan_odds()  # 2連単オッズ
 
 
-# %%
-BoatDataset()
 # %%
