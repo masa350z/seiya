@@ -37,6 +37,11 @@ def scaled_dot_product_attention(q, k, v):
 
 
 def point_wise_feed_forward_network(vector_dims, inner_dims):
+    """
+    ポイントワイズフィードフォワードネットワークの定義
+    vector_dims: 特徴ベクトルの次元数
+    inner_dims: 内部層の次元数
+    """
     return tf.keras.Sequential([
         layers.Dense(inner_dims,
                      kernel_initializer=he_uniform(),
@@ -45,13 +50,20 @@ def point_wise_feed_forward_network(vector_dims, inner_dims):
       ])
 
 
-def get_angles(pos, i, vector_dims):
-    angle_rates = 1 / np.power(10000, (2 * (i//2)) / np.float32(vector_dims))
+def get_angles(pos, i, vector_dims, k=10000):
+    """
+    位置情報エンコーディング用の角度を計算
+    pos: 位置情報の配列（シーケンスの最大長）
+    i: インデックスの配列
+    vector_dims: ベクトルの次元数
+    k: 定数。小さいほど時系列方向の情報が少ない場合に有利
+    """
+    angle_rates = 1 / np.power(k, (2 * (i//2)) / np.float32(vector_dims))
 
     return pos*angle_rates
 
 
-def positional_encoding(position, vector_dims, trainable=False):
+def positional_encoding(position, vector_dims, k, trainable=False):
     """
     poisition: シーケンスの最大長
     d_model: 1シーケンスの次元数（単語ベクトルの次元数）
@@ -64,7 +76,8 @@ def positional_encoding(position, vector_dims, trainable=False):
     else:
         angle_rads = get_angles(np.arange(position)[:, np.newaxis],
                                 np.arange(vector_dims)[np.newaxis, :],
-                                vector_dims)
+                                vector_dims,
+                                k)
 
         # 配列中の偶数インデックスにはsinを適用; 2i
         angle_rads[:, 0::2] = np.sin(angle_rads[:, 0::2])
@@ -218,15 +231,19 @@ class RacerTransformer(TransformerBase):
 
         self.racer_embedding = layers.Embedding(10000, vector_dims)
         self.grade_embedding = layers.Embedding(4, vector_dims)
-        self.incose_embedding = layers.Embedding(6, vector_dims)
+
+        self.pos_vector = positional_encoding(6, vector_dims,
+                                              7, trainable=False)
 
     def call(self, x):
         racer, grade, incose = x
         batch_size = racer.shape[0]
 
+        incose_onehot = tf.one_hot(tf.cast(incose, tf.int32), depth=6)
+
         racer = self.racer_embedding(racer)
         grade = self.grade_embedding(grade)
-        pos_encoding = self.incose_embedding(incose)
+        pos_encoding = tf.matmul(incose_onehot, self.pos_vector)
 
         x = racer + grade + pos_encoding
 
@@ -238,9 +255,9 @@ class RacerTransformer(TransformerBase):
         return x, pos_encoding
 
 
-class F_L_aveST_Encoder(layers.Layer):
+class F_L_Encoder(layers.Layer):
     def __init__(self, feature_dims):
-        super(F_L_aveST_Encoder, self).__init__()
+        super(F_L_Encoder, self).__init__()
 
         self.flying_embedding = layers.Embedding(10, feature_dims)
         self.latestart_embedding = layers.Embedding(10, feature_dims)
@@ -249,13 +266,28 @@ class F_L_aveST_Encoder(layers.Layer):
         self.output_dense = OutputDense(feature_dims)
 
     def call(self, x):
-        flying, latestart, avest = x
+        flying, latestart = x
 
         flying = self.flying_embedding(flying)
         latestart = self.latestart_embedding(latestart)
+
+        return self.output_dense(flying + latestart)
+
+
+class aveST_Encoder(layers.Layer):
+    def __init__(self, feature_dims):
+        super(aveST_Encoder, self).__init__()
+
+        self.avest_encoder = layers.Dense(feature_dims)
+
+        self.output_dense = OutputDense(feature_dims)
+
+    def call(self, x):
+        avest = x
+
         avest = self.avest_encoder(tf.expand_dims(avest, 2))
 
-        return self.output_dense(flying + latestart + avest)
+        return self.output_dense(avest)
 
 
 class RacerWinningRateEncoder(layers.Layer):
@@ -305,9 +337,8 @@ class CurrentInfoTransformer(TransformerBase):
         self.cose_embedding = MaskedEmbedding(7, vector_dims)
         self.result_embedding = MaskedEmbedding(7, vector_dims)
         self.start_encoder = layers.Dense(vector_dims)
-
-        self.positional = tf.Variable(tf.random.normal(shape=(1, 14, vector_dims)),
-                                      trainable=True)
+        self.positional = positional_encoding(14, vector_dims,
+                                              17, trainable=False)
 
     def call(self, x):
         no, cose, result, start = x
@@ -346,7 +377,7 @@ class StartTenjiEncoder(layers.Layer):
         mx = tf.reduce_max(start, axis=1, keepdims=True)
         mn = tf.reduce_min(start, axis=1, keepdims=True)
 
-        start = (start - mn) / (mx - mn) + 1
+        start = (start - mn) / tf.where(tf.equal(mx, mn), tf.ones_like(mx), (mx - mn)) + 1
 
         start = self.start_encoder(tf.expand_dims(start, 2))
         tenji = self.tenji_encoder(tf.expand_dims(tenji, 2))
@@ -363,8 +394,8 @@ class ComputerPredictionTransformer(TransformerBase):
 
         self.prediction_embedding = layers.Embedding(6, vector_dims)
         self.confidence_embedding = layers.Embedding(5, vector_dims)
-        self.positional = tf.Variable(tf.random.normal(shape=(1, 26, vector_dims)),
-                                      trainable=True)
+        self.positional = positional_encoding(26, vector_dims,
+                                              33, trainable=False)
 
     def call(self, x):
         prediction, confidence = x
@@ -429,17 +460,17 @@ class FieldEncoder(layers.Layer):
         return self.output_dense(x)
 
 
-class OddsTransformer(TransformerBase):
-    def __init__(self, num_layer_loops, vector_dims, num_heads, inner_dims, seq_len=120):
-        super(OddsTransformer, self).__init__(num_layer_loops,
-                                              vector_dims,
-                                              num_heads,
-                                              inner_dims)
+class SanrenTanOddsTransformer(TransformerBase):
+    def __init__(self, num_layer_loops, vector_dims, num_heads, inner_dims):
+        super(SanrenTanOddsTransformer, self).__init__(num_layer_loops,
+                                                       vector_dims,
+                                                       num_heads,
+                                                       inner_dims)
 
         self.odds_encoder = layers.Dense(vector_dims)
 
-        self.positional = tf.Variable(tf.random.normal(shape=(1, seq_len, vector_dims)),
-                                      trainable=True)
+        self.positional = positional_encoding(120, vector_dims,
+                                              160, trainable=False)
 
     def call(self, x):
         batch_size = x.shape[0]
