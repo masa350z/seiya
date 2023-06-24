@@ -578,6 +578,7 @@ class SeiyaTrainer(SeiyaDataSet):
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 
+    @tf.function
     def train_step(self, data_x, data_y):
         with tf.GradientTape() as tape:
             # loss = tf.keras.losses.CategoricalCrossentropy()(data_y, self.model(data_x))
