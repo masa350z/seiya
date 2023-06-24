@@ -62,14 +62,16 @@ def ret_niren():
 
 
 class BoatData:
-    def __init__(self, race_field=None):
+    def __init__(self, df, race_field=None, shuffle=False):
         """
         BoatDataクラスの初期化メソッド
 
         Args:
             race_field (int, optional): レース場番号（デフォルト: None）
         """
-        self.df = pd.read_csv('datas/boatdata.csv')
+        self.df = df
+        if shuffle:
+            self.df = self.df.sample(frac=1).reset_index(drop=True)
         self.ar_field, self.df = self.ret_field(race_field)
 
         self.ar_field = self.ar_field - 1
@@ -371,14 +373,14 @@ class BoatData:
 
 
 class BoatDataset(BoatData):
-    def __init__(self, race_field=None):
+    def __init__(self, df, race_field=None, shuffle=False):
         """
         ボートデータセットのクラス
 
         Args:
             race_field (int): レース場のフィールド番号 (デフォルト: None)
         """
-        super().__init__(race_field)
+        super().__init__(df, race_field, shuffle)
 
         self.sanren_indx = ret_sanren()  # 3連単インデックス
         self.sanren_odds = self.ret_sanrentan_odds()  # 3連単オッズ

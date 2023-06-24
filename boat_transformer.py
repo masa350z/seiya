@@ -468,9 +468,12 @@ class SanrenTanOddsTransformer(TransformerBase):
                                                        inner_dims)
 
         self.odds_encoder = layers.Dense(vector_dims)
-
+        """
         self.positional = positional_encoding(120, vector_dims,
                                               160, trainable=False)
+        """
+        self.positional = positional_encoding(30, vector_dims,
+                                              35, trainable=False)
 
     def call(self, x):
         batch_size = x.shape[0]
