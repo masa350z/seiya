@@ -23,12 +23,13 @@ def custom_loss(pred, label):
     loss3 = tf.keras.losses.CategoricalCrossentropy()(label[1][:, 2], pred[3])
 
     odds_return = pred[0]*label[2]
-    odds_return = 1/tf.reduce_sum(odds_return)
+    # odds_return = 1/tf.reduce_sum(odds_return)
+    odds_return = -1*tf.reduce_sum(odds_return)
 
     # loss = loss*loss1*loss2*loss3*odds_return
     loss = odds_return
 
-    return -1*loss
+    return loss
 
 
 # %%
@@ -61,13 +62,11 @@ class SeiyaDataSet(boatdata.BoatDataset):
                              self.ar_field, self.wether, self.wind,
                              self.tempreture, self.wind_speed,
                              self.water_tempreture, self.water_hight,
-                             #self.sanren_odds,
-                             self.niren_odds]
-        # self.data_y_numpy = self.ret_sanren_onehot()
-        self.data_y_numpy = self.ret_niren_onehot()
+                             self.sanren_odds]
+        self.data_y_numpy = self.ret_sanren_onehot()
+        self.data_y_numpy = self.ret_sanren_onehot()
 
-        # self.odds_sanren_label = self.sanrentan_odds*self.data_y_numpy
-        self.odds_sanren_label = self.nirentan_odds*self.data_y_numpy
+        self.odds_sanren_label = self.sanrentan_odds*self.data_y_numpy
 
         self.dataset_x = self.ret_data_x()
         self.dataset_y = tf.data.Dataset.from_tensor_slices(self.data_y_numpy)
@@ -93,9 +92,7 @@ class SeiyaDataSet(boatdata.BoatDataset):
                                                      self.ar_field, self.wether, self.wind,
                                                      self.tempreture, self.wind_speed,
                                                      self.water_tempreture, self.water_hight,
-                                                     # self.sanren_odds,
-                                                     self.niren_odds,
-                                                     ))
+                                                     self.sanren_odds))
 
         return data_x
 
@@ -145,7 +142,7 @@ class SeiyaDataSet(boatdata.BoatDataset):
         return niren_one_hot
 
 
-def reduce_sum_odds_vector(odds_vector, filter, seq_len=30):
+def reduce_sum_odds_vector(odds_vector, filter, seq_len=120):
     vector = odds_vector*tf.reshape(filter, (1, seq_len, 1))
     vector = tf.reduce_sum(vector, axis=1)
 
@@ -416,8 +413,7 @@ class Seiya(tf.keras.Model):
         self.odds_encoder = btt.SanrenTanOddsTransformer(num_layer_loops, vector_dims,
                                                          num_heads, vector_dims)
 
-        # indx = boatdata.ret_sanren().astype('str')
-        indx = boatdata.ret_niren().astype('str')
+        indx = boatdata.ret_sanren().astype('str')
         self.odds_related_encoder = OddsRelatedTranceformer(indx, num_layer_loops, vector_dims,
                                                             num_heads, vector_dims)
         self.output_transformer = OutPutTransformer(num_layer_loops, vector_dims, 
@@ -441,8 +437,7 @@ class Seiya(tf.keras.Model):
         self.decoder_dense03 = DecoderDense(vector_dims)
 
 
-        # self.output_layer = layers.Dense(120, activation='softmax')
-        self.output_layer = layers.Dense(30, activation='softmax')
+        self.output_layer = layers.Dense(120, activation='softmax')
         self.output_layer01 = layers.Dense(6, activation='softmax')
         self.output_layer02 = layers.Dense(6, activation='softmax')
         self.output_layer03 = layers.Dense(6, activation='softmax')
@@ -722,10 +717,10 @@ best_val_return = 0
 for repeat in range(repeats):
     seiya = SeiyaTrainer(df,
                          'datas/pred_sanren/all',
-                         k_freeze=5,
+                         k_freeze=5, race_field=18
                          shuffle=True)
 
-    seiya.set_dataset(batch_size=121*1)
+    seiya.set_dataset(batch_size=120*1)
 
     seiya.set_model(num_layer_loops, vector_dims,
                     num_heads)
@@ -752,9 +747,4 @@ for repeat in range(repeats):
     best_val_acc = seiya.best_val_acc
     best_val_return = seiya.best_val_return
 
-# %%
-for data_x, data_y in seiya.val_dataset:
-    break
-# %%
-seiya.model(data_x)
 # %%
