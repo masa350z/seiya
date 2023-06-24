@@ -15,6 +15,17 @@ import os
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
 
+def custom_loss(pred, label):
+    loss = tf.keras.losses.CategoricalCrossentropy()(label[0], pred[0])
+    loss1 = tf.keras.losses.CategoricalCrossentropy()(label[1][:, 0], pred[1])
+    loss2 = tf.keras.losses.CategoricalCrossentropy()(label[1][:, 1], pred[2])
+    loss3 = tf.keras.losses.CategoricalCrossentropy()(label[1][:, 2], pred[3])
+
+    loss = loss*loss1*loss2*loss3
+
+    return loss
+
+
 # %%
 def calc_acurracy(prediction, label):
     predicted_indices = tf.argmax(prediction, axis=1)
@@ -50,6 +61,9 @@ class SeiyaDataSet(boatdata.BoatDataset):
 
         self.dataset_x = self.ret_data_x()
         self.dataset_y = tf.data.Dataset.from_tensor_slices(self.data_y_numpy)
+        th123_one_hot = tf.one_hot(self.th[:, :3]-1, 6)
+        self.th123_one_hot = tf.data.Dataset.from_tensor_slices(th123_one_hot)
+        self.dataset_y = tf.data.Dataset.zip((self.dataset_y, self.th123_one_hot))
         self.dataset = tf.data.Dataset.zip((self.dataset_x, self.dataset_y))
 
     def ret_data_x(self):
@@ -110,13 +124,184 @@ class SeiyaDataSet(boatdata.BoatDataset):
         return sanren_one_hot
 
 
+def reduce_sum_odds_vector(odds_vector, filter, seq_len=120):
+    vector = odds_vector*tf.reshape(filter, (1, seq_len, 1))
+    vector = tf.reduce_sum(vector, axis=1)
+
+    return vector
+
+
+class OddsRelatedTranceformer(layers.Layer):
+    def __init__(self, indx,
+                 num_layer_loops, vector_dims,
+                 num_heads, inner_dims):
+        super().__init__()
+
+        self.indx = indx
+
+        self.filter01_01 = self.ret_filter(1, 1)
+        self.filter01_02 = self.ret_filter(1, 2)
+        self.filter01_03 = self.ret_filter(1, 3)
+
+        self.filter02_01 = self.ret_filter(2, 1)
+        self.filter02_02 = self.ret_filter(2, 2)
+        self.filter02_03 = self.ret_filter(2, 3)
+
+        self.filter03_01 = self.ret_filter(3, 1)
+        self.filter03_02 = self.ret_filter(3, 2)
+        self.filter03_03 = self.ret_filter(3, 3)
+
+        self.filter04_01 = self.ret_filter(4, 1)
+        self.filter04_02 = self.ret_filter(4, 2)
+        self.filter04_03 = self.ret_filter(4, 3)
+
+        self.filter05_01 = self.ret_filter(5, 1)
+        self.filter05_02 = self.ret_filter(5, 2)
+        self.filter05_03 = self.ret_filter(5, 3)
+
+        self.filter06_01 = self.ret_filter(6, 1)
+        self.filter06_02 = self.ret_filter(6, 2)
+        self.filter06_03 = self.ret_filter(6, 3)
+
+        self.related_racer_transformer = RelatedRacerTransformer(num_layer_loops, vector_dims,
+                                                                 num_heads, inner_dims)
+        self.related_th_transformer = RelatedThTransformer(num_layer_loops, vector_dims,
+                                                           num_heads, inner_dims)
+
+    def ret_filter(self, num, th):
+        filter = np.array([str(num) in i[th-1:th] for i in self.indx])
+        filter = tf.constant(filter, dtype=tf.float32)
+
+        return filter
+
+    def call(self, odds_vector):
+        odds_vector01_01 = reduce_sum_odds_vector(odds_vector, self.filter01_01)
+        odds_vector01_02 = reduce_sum_odds_vector(odds_vector, self.filter01_02)
+        odds_vector01_03 = reduce_sum_odds_vector(odds_vector, self.filter01_03)
+
+        odds_vector02_01 = reduce_sum_odds_vector(odds_vector, self.filter02_01)
+        odds_vector02_02 = reduce_sum_odds_vector(odds_vector, self.filter02_02)
+        odds_vector02_03 = reduce_sum_odds_vector(odds_vector, self.filter02_03)
+
+        odds_vector03_01 = reduce_sum_odds_vector(odds_vector, self.filter03_01)
+        odds_vector03_02 = reduce_sum_odds_vector(odds_vector, self.filter03_02)
+        odds_vector03_03 = reduce_sum_odds_vector(odds_vector, self.filter03_03)
+
+        odds_vector04_01 = reduce_sum_odds_vector(odds_vector, self.filter04_01)
+        odds_vector04_02 = reduce_sum_odds_vector(odds_vector, self.filter04_02)
+        odds_vector04_03 = reduce_sum_odds_vector(odds_vector, self.filter04_03)
+
+        odds_vector05_01 = reduce_sum_odds_vector(odds_vector, self.filter05_01)
+        odds_vector05_02 = reduce_sum_odds_vector(odds_vector, self.filter05_02)
+        odds_vector05_03 = reduce_sum_odds_vector(odds_vector, self.filter05_03)
+
+        odds_vector06_01 = reduce_sum_odds_vector(odds_vector, self.filter06_01)
+        odds_vector06_02 = reduce_sum_odds_vector(odds_vector, self.filter06_02)
+        odds_vector06_03 = reduce_sum_odds_vector(odds_vector, self.filter06_03)
+
+        odds_related_racer01 = layers.concatenate([odds_vector01_01, odds_vector01_02, odds_vector01_03])
+        odds_related_racer02 = layers.concatenate([odds_vector02_01, odds_vector02_02, odds_vector02_03])
+        odds_related_racer03 = layers.concatenate([odds_vector03_01, odds_vector03_02, odds_vector03_03])
+        odds_related_racer04 = layers.concatenate([odds_vector04_01, odds_vector04_02, odds_vector04_03])
+        odds_related_racer05 = layers.concatenate([odds_vector05_01, odds_vector05_02, odds_vector05_03])
+        odds_related_racer06 = layers.concatenate([odds_vector06_01, odds_vector06_02, odds_vector06_03])
+
+        odds_related_th01 = layers.concatenate([odds_vector01_01, odds_vector02_01, odds_vector03_01, odds_vector04_01, odds_vector05_01, odds_vector06_01])
+        odds_related_th02 = layers.concatenate([odds_vector01_02, odds_vector02_02, odds_vector03_02, odds_vector04_02, odds_vector05_02, odds_vector06_02])
+        odds_related_th03 = layers.concatenate([odds_vector01_03, odds_vector02_03, odds_vector03_03, odds_vector04_03, odds_vector05_03, odds_vector06_03])
+
+        odds_related_racer = tf.stack([odds_related_racer01, odds_related_racer02, odds_related_racer03,
+                                       odds_related_racer04, odds_related_racer05, odds_related_racer06], axis=1)
+
+        odds_related_th = tf.stack([odds_related_th01, odds_related_th02, odds_related_th03], axis=1)
+
+        odds_related_racer = self.related_racer_transformer(odds_related_racer)[:, 1:]
+
+        odds_related_th = self.related_th_transformer(odds_related_th)
+
+        odds_related_th01 = odds_related_th[:, 1]
+        odds_related_th02 = odds_related_th[:, 2]
+        odds_related_th03 = odds_related_th[:, 3]
+        odds_related_th = odds_related_th[:, 0]
+
+        return odds_related_racer, odds_related_th, odds_related_th01, odds_related_th02, odds_related_th03
+
+
+class RelatedRacerTransformer(btt.TransformerBase):
+    def __init__(self, num_layer_loops, vector_dims, num_heads, inner_dims):
+        super(RelatedRacerTransformer, self).__init__(num_layer_loops, vector_dims, num_heads, inner_dims)
+
+        self.position_vector = btt.positional_encoding(6,
+                                                       vector_dims,
+                                                       7,
+                                                       trainable=False)
+        self.dense01 = layers.Dense(vector_dims,
+                                    activation=gelu,
+                                    kernel_initializer=he_uniform)
+        self.dense02 = layers.Dense(vector_dims,
+                                    activation=gelu,
+                                    kernel_initializer=he_uniform)
+        self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
+
+    def call(self, x):
+        batch_size = x.shape[0]
+        x = self.dense01(x)
+        x = self.dense02(x)
+        x= self.layernorm1(x)
+        x = x + self.position_vector
+
+        x = self.add_cls(x, batch_size)
+
+        for i in range(self.num_layer_loops):
+            x += self.enc_layers[i](x)
+
+        return x
+
+
+class RelatedThTransformer(btt.TransformerBase):
+    def __init__(self, num_layer_loops, vector_dims, num_heads, inner_dims):
+        super(RelatedThTransformer, self).__init__(num_layer_loops, vector_dims, num_heads, inner_dims)
+
+        self.position_vector = btt.positional_encoding(3,
+                                                       vector_dims,
+                                                       3,
+                                                       trainable=False)
+
+        self.dense01 = layers.Dense(vector_dims,
+                                    activation=gelu,
+                                    kernel_initializer=he_uniform)
+        self.dense02 = layers.Dense(vector_dims,
+                                    activation=gelu,
+                                    kernel_initializer=he_uniform)
+        self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
+
+    def call(self, x):
+        batch_size = x.shape[0]
+        x = self.dense01(x)
+        x = self.dense02(x)
+        x= self.layernorm1(x)
+        x = x + self.position_vector
+
+        x = self.add_cls(x, batch_size)
+
+        for i in range(self.num_layer_loops):
+            x += self.enc_layers[i](x)
+
+        return x
+
+
 class OutPutTransformer(btt.TransformerBase):
     def __init__(self, num_layer_loops, vector_dims, num_heads, inner_dims):
         super(OutPutTransformer, self).__init__(num_layer_loops, vector_dims, num_heads, inner_dims)
 
-    def call(self, x, position_vector):
+        self.position_vector = btt.positional_encoding(6,
+                                                       vector_dims,
+                                                       7,
+                                                       trainable=False)
+
+    def call(self, x):
         batch_size = x.shape[0]
-        x = x + position_vector
+        x = x + self.position_vector
 
         x = self.add_cls(x, batch_size)
 
@@ -168,8 +353,8 @@ class DecoderDense(layers.Layer):
         self.layernorm5 = layers.LayerNormalization(epsilon=1e-6)
 
     def call(self, x):
-        x_ = self.dense01(x)
-        x_ = self.dense02(x_)
+        x = self.dense01(x)
+        x_ = self.dense02(x)
         x = self.layernorm1(x_ + x)
         """
         x_ = self.dense03(x)
@@ -286,6 +471,65 @@ class Seiya(tf.keras.Model):
         return self.output_layer(x)
 
 
+class SeiyaLight(tf.keras.Model):
+    def __init__(self, num_layer_loops, vector_dims,
+                 num_heads, inner_dims):
+        super(SeiyaLight, self).__init__()
+
+        self.racer_encoder = btt.RacerTransformer(num_layer_loops, vector_dims,
+                                                  num_heads, inner_dims)
+        self.odds_encoder = btt.SanrenTanOddsTransformer(num_layer_loops, vector_dims,
+                                                         num_heads, inner_dims)
+
+        indx = boatdata.ret_sanren().astype('str')
+        self.odds_related_encoder = OddsRelatedTranceformer(indx, num_layer_loops, vector_dims,
+                                                            num_heads, inner_dims)
+        self.output_transformer = OutPutTransformer(num_layer_loops, vector_dims, 
+                                                    num_heads, inner_dims)
+
+        self.decoder_dense = DecoderDense(vector_dims)
+        self.decoder_dense01 = DecoderDense(vector_dims)
+        self.decoder_dense02 = DecoderDense(vector_dims)
+        self.decoder_dense03 = DecoderDense(vector_dims)
+
+        self.output_layer = layers.Dense(120, activation='softmax')
+        self.output_layer01 = layers.Dense(6, activation='softmax')
+        self.output_layer02 = layers.Dense(6, activation='softmax')
+        self.output_layer03 = layers.Dense(6, activation='softmax')
+
+    def call(self, x):
+        racer, grade, incose, flying, latestart, avest, zenkoku_shouritsu, \
+            touchui_shouritsu, motor_shouritsu, boat_shouritsu, ex_no, ex_cose, \
+            ex_result, ex_start, start_time, tenji_time, computer_prediction, \
+            computer_confidence, prediction_mark, field, wether, wind, \
+            tempreture, wind_speed, water_tempreture, water_hight, odds = x
+
+        racer, position_vector = self.racer_encoder([racer, grade, incose])
+        odds = self.odds_encoder(tf.math.sqrt(odds))
+
+        racer = racer[:, 1:]
+        odds = odds[:, 1:]
+
+        odds_racer, odds_th, odds1th, odds2th, odds3th = self.odds_related_encoder(odds)
+
+        x = racer + odds_racer
+
+        x = self.output_transformer(x)[:, 0]
+
+        x = layers.concatenate([x, odds_th])
+        x1 = layers.concatenate([x, odds1th])
+        x2 = layers.concatenate([x, odds2th])
+        x3 = layers.concatenate([x, odds3th])
+
+        x1 = self.decoder_dense01(x1)
+        x2 = self.decoder_dense01(x2)
+        x3 = self.decoder_dense01(x3)
+
+        x = self.decoder_dense(x)
+
+        return self.output_layer(x), self.output_layer01(x1), self.output_layer02(x2), self.output_layer03(x3)
+
+
 class SeiyaTrainer(SeiyaDataSet):
     def __init__(self, weight_name, k_freeze, race_field=None):
         super().__init__(race_field)
@@ -309,13 +553,18 @@ class SeiyaTrainer(SeiyaDataSet):
         self.temp_val_acc = 0
 
     def set_model(self, num_layer_loops, vector_dims,
-                  num_heads, inner_dims, decoder_dims):
-
+                  num_heads, inner_dims):
+        """
         self.model = Seiya(num_layer_loops,
                            vector_dims,
                            num_heads,
                            inner_dims,
                            decoder_dims)
+        """
+        self.model = SeiyaLight(num_layer_loops,
+                                vector_dims,
+                                num_heads,
+                                inner_dims)
 
     def set_optimizer(self, learning_rate,
                       weight_learning_rate,
@@ -331,26 +580,30 @@ class SeiyaTrainer(SeiyaDataSet):
 
     def train_step(self, data_x, data_y):
         with tf.GradientTape() as tape:
-            loss = tf.keras.losses.CategoricalCrossentropy()(data_y, self.model(data_x))
+            # loss = tf.keras.losses.CategoricalCrossentropy()(data_y, self.model(data_x))
+
+            loss = custom_loss(self.model(data_x), data_y)
 
         gradients = tape.gradient(loss, self.model.trainable_variables)
+        """
+        weight_conditions = tf.map_fn(lambda var: any(param in var.name for param in self.weight_params), 
+                                    self.model.trainable_variables)
+        output_conditions = tf.map_fn(lambda var: any(param in var.name for param in self.output_params), 
+                                    self.model.trainable_variables)
+        no_grad_conditions = tf.logical_not(tf.map_fn(lambda grad: isinstance(grad, tf.IndexedSlices), gradients))
 
-        for i, grad in enumerate(gradients):
-            if any(param in self.model.trainable_variables[i].name
-                   for param in self.weight_params):
-                gradients[i] = grad * self.weight_learning_rate / self.learning_rate
-            elif any(param in self.model.trainable_variables[i].name
-                     for param in self.output_params):
-                gradients[i] = grad * self.output_learning_rate / self.learning_rate
-            else:
-                if self.no_grad and not isinstance(grad, tf.IndexedSlices):
-                    gradients[i] = grad * 0.
+        weight_mask = tf.cast(weight_conditions, tf.float32) * (self.weight_learning_rate / self.learning_rate)
+        output_mask = tf.cast(output_conditions, tf.float32) * (self.output_learning_rate / self.learning_rate)
+        no_grad_mask = tf.cast(self.no_grad, tf.float32) * tf.cast(no_grad_conditions, tf.float32) * 0.
+
+        gradients = gradients * (weight_mask + output_mask + no_grad_mask)
+        """
 
         self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
 
         return loss
 
-    def model_weights_random_init(self, init_ratio=0.0001):
+    def model_weights_random_init(self, init_ratio=1e-3):
         weights = self.model.get_weights()
 
         for i, weight in enumerate(weights):
@@ -362,16 +615,14 @@ class SeiyaTrainer(SeiyaDataSet):
         self.model.set_weights(weights)
 
     def run_mono_train(self, epoch, per_batch, repeat=0):
-        self.temp_val_acc = 0
-
         for (batch, (data_x, data_y)) in enumerate(self.train_dataset):
             self.train_step(data_x, data_y)
 
             if batch % per_batch == 0 and not batch == 0:
                 prediction, label = [], []
                 for x, y in tqdm(self.val_dataset):
-                    prediction.append(self.model(x))
-                    label.append(y)
+                    prediction.append(self.model(x)[0])
+                    label.append(y[0])
 
                 prediction = tf.concat(prediction, axis=0)
                 label = tf.concat(label, axis=0)
@@ -420,53 +671,28 @@ class SeiyaTrainer(SeiyaDataSet):
 # %%
 seiya = SeiyaTrainer('datas/pred_sanren/all', k_freeze=3)
 # %%
-seiya.set_dataset(batch_size=120*4)
+seiya.set_dataset(batch_size=120*2, shuffle=True)
 # %%
 num_layer_loops = 1
 vector_dims = 128*1
-num_heads = 4
-inner_dims = 120
+num_heads = 8
+inner_dims = vector_dims
 decoder_dims = vector_dims*2
 seiya.set_model(num_layer_loops, vector_dims,
-                num_heads, inner_dims, decoder_dims)
-# %%
+                num_heads, inner_dims)
+
 per_batch = 100
-
-seiya.set_optimizer(learning_rate=2e-4,
-                    weight_learning_rate=2e-2*0,
-                    output_learning_rate=2e-4,
-                    no_grad=False)
-
-seiya.run_train(epochs=1, repeats=1, per_batch=per_batch)
 # %%
-seiya.best_val_loss = float('inf')
-seiya.best_val_acc = 0
-
-seiya.temp_val_loss = float('inf')
-seiya.temp_val_acc = 0
-
-seiya.set_optimizer(learning_rate=2e-4,
-                    weight_learning_rate=2e-2,
-                    output_learning_rate=2e-4,
-                    no_grad=True)
-
-seiya.run_train(epochs=1, repeats=1, per_batch=per_batch)
-# %%
-seiya.best_val_loss = float('inf')
-seiya.best_val_acc = 0
-
-seiya.temp_val_loss = float('inf')
-seiya.temp_val_acc = 0
-
-seiya.set_optimizer(learning_rate=2e-4,
+seiya.set_optimizer(learning_rate=2e-5,
                     weight_learning_rate=2e-2,
                     output_learning_rate=2e-4,
                     no_grad=False)
 
-seiya.run_train(epochs=100, repeats=1, per_batch=per_batch)
+seiya.run_train(epochs=10, repeats=100, per_batch=per_batch)
 
 # %%
-layers.Softmax()(seiya.model.weight01)
+for data_x, data_y in seiya.val_dataset:
+    break
 # %%
-layers.Softmax()(seiya.model.weight02)
+seiya.model(data_x)
 # %%
