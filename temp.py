@@ -1,5 +1,5 @@
 # %%
-from keras.activations import gelu
+from keras.activations import gelu, relu, sigmoid, softmax
 from keras import layers
 import numpy as np
 import pandas as pd
@@ -24,7 +24,7 @@ def custom_loss(pred, label):
 
     odds_return = pred[0]*label[2]
     # odds_return = 1/tf.reduce_sum(odds_return)
-    odds_return = -1*tf.reduce_sum(odds_return)
+    odds_return = -1*tf.reduce_mean(odds_return)
 
     # loss = loss*loss1*loss2*loss3*odds_return
     loss = odds_return
@@ -66,7 +66,7 @@ class SeiyaDataSet(boatdata.BoatDataset):
         self.data_y_numpy = self.ret_sanren_onehot()
         self.data_y_numpy = self.ret_sanren_onehot()
 
-        self.odds_sanren_label = self.sanrentan_odds*self.data_y_numpy
+        self.odds_sanren_label = self.sanrentan_odds*self.data_y_numpy - 1
 
         self.dataset_x = self.ret_data_x()
         self.dataset_y = tf.data.Dataset.from_tensor_slices(self.data_y_numpy)
@@ -431,7 +431,7 @@ class Seiya(tf.keras.Model):
         self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
         self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
 
-        self.decoder_dense = DecoderDense(vector_dims)
+        self.decoder_dense = DecoderDense(120)
         self.decoder_dense01 = DecoderDense(vector_dims)
         self.decoder_dense02 = DecoderDense(vector_dims)
         self.decoder_dense03 = DecoderDense(vector_dims)
@@ -459,6 +459,7 @@ class Seiya(tf.keras.Model):
         computer_prediction = self.computer_prediction_encoder([computer_prediction, computer_confidence])
         prediction_mark = self.prediction_mark_encoder(prediction_mark)
         field = self.field_encoder([field, wether, wind, tempreture, wind_speed, water_tempreture, water_hight])
+        odds_origin = odds
         odds = self.odds_encoder(tf.math.sqrt(odds))
 
         racer = racer[:, 1:]
@@ -471,7 +472,9 @@ class Seiya(tf.keras.Model):
 
         x = tf.stack([racer, f_l, avest, racer_winning_rate,
                       motor_boat_winning_rate, current_info,
-                      start_tenji, prediction_mark, odds_racer], 1)
+                      start_tenji, prediction_mark,
+                      #odds_racer
+                      ], 1)
 
         x = tf.math.reduce_sum(x, axis=1)
         x1 = self.output_transformer(x)[:, 0]
@@ -490,7 +493,7 @@ class Seiya(tf.keras.Model):
         x = tf.stack([x1, x2], 1)
         x = layers.Flatten()(x)
 
-        x = layers.concatenate([x, odds_th])
+        # x = layers.concatenate([x, odds_th])
         x1 = layers.concatenate([x, odds1th])
         x2 = layers.concatenate([x, odds2th])
         x3 = layers.concatenate([x, odds3th])
@@ -500,8 +503,9 @@ class Seiya(tf.keras.Model):
         x3 = self.decoder_dense01(x3)
 
         x = self.decoder_dense(x)
+        x = self.output_layer(x)
 
-        return self.output_layer(x), self.output_layer01(x1), self.output_layer02(x2), self.output_layer03(x3)
+        return x, self.output_layer01(x1), self.output_layer02(x2), self.output_layer03(x3)
 
 
 class SeiyaLight(tf.keras.Model):
@@ -525,7 +529,7 @@ class SeiyaLight(tf.keras.Model):
         self.decoder_dense02 = DecoderDense(vector_dims)
         self.decoder_dense03 = DecoderDense(vector_dims)
 
-        self.output_layer = layers.Dense(120, activation='softmax')
+        self.output_layer = layers.Dense(120, activation='relu')
         self.output_layer01 = layers.Dense(6, activation='softmax')
         self.output_layer02 = layers.Dense(6, activation='softmax')
         self.output_layer03 = layers.Dense(6, activation='softmax')
@@ -595,12 +599,12 @@ class SeiyaTrainer(SeiyaDataSet):
                            vector_dims,
                            num_heads)
 
-        """
+        
         self.num_layer_loops = num_layer_loops
         self.vector_dims = vector_dims
         self.num_heads = num_heads
         self.inner_dims = inner_dims
-
+        """
         self.model = SeiyaLight(num_layer_loops,
                                 vector_dims,
                                 num_heads,
@@ -612,9 +616,9 @@ class SeiyaTrainer(SeiyaDataSet):
 
     def train_step(self, data_x, data_y):
         with tf.GradientTape() as tape:
-            # loss = tf.keras.losses.CategoricalCrossentropy()(data_y, self.model(data_x))
+            loss = tf.keras.losses.CategoricalCrossentropy()(data_y[0], self.model(data_x)[0])
 
-            loss = custom_loss(self.model(data_x), data_y)
+            # loss = custom_loss(self.model(data_x), data_y)
 
         gradients = tape.gradient(loss, self.model.trainable_variables)
         """
@@ -648,7 +652,7 @@ class SeiyaTrainer(SeiyaDataSet):
 
     def run_mono_train(self, epoch, per_batch, repeat=0):
         for (batch, (data_x, data_y)) in enumerate(self.train_dataset):
-            self.train_step(data_x, data_y)
+            loss = self.train_step(data_x, data_y)
 
             if batch % per_batch == 0 and not batch == 0:
                 prediction, label, odds = [], [], []
@@ -661,23 +665,25 @@ class SeiyaTrainer(SeiyaDataSet):
                 label = tf.concat(label, axis=0)
                 odds = tf.concat(odds, axis=0)
 
-                val_loss = tf.keras.losses.CategoricalCrossentropy()(label, prediction).numpy()
                 val_acc = calc_acurracy(prediction, label).numpy()
-                odds_return = prediction[0]*odds
-                odds_return = tf.reduce_sum(odds_return)/label.shape[0]
+                #odds_return = prediction*odds
+                #odds_return = tf.reduce_mean(odds_return)
+
+                # val_loss = val_acc*odds_return
+                val_loss = tf.keras.losses.CategoricalCrossentropy()(label, prediction).numpy()
 
                 if val_loss < self.temp_val_loss:
                     self.last_epoch = epoch
                     self.freeze = 0
                     self.temp_val_loss = val_loss
                     self.temp_val_acc = val_acc
-                    self.temp_val_return = odds_return
+                    #self.temp_val_return = odds_return
                     self.temp_weights = self.model.get_weights()
 
                     if val_loss < self.best_val_loss:
                         self.best_val_loss = val_loss
                         self.best_val_acc = val_acc
-                        self.best_val_return = odds_return
+                        #self.best_val_return = odds_return
                         self.model.save_weights(self.weight_name)
                 else:
                     if self.freeze == 0:
@@ -693,17 +699,17 @@ class SeiyaTrainer(SeiyaDataSet):
                 print(f"Best valid loss : {self.best_val_loss}")
                 print(f"Temp valid acc : {self.temp_val_acc}")
                 print(f"Best valid acc : {self.best_val_acc}")
-                print(f"Temp valid return : {self.temp_val_return}")
-                print(f"Best valid return : {self.best_val_return}")
+                #print(f"Temp valid return : {self.temp_val_return}")
+                #print(f"Best valid return : {self.best_val_return}")
 
 
 # %%
 df = pd.read_csv('datas/boatdata.csv')
 # %%
-per_batch = 500
+per_batch = 300
 
-repeats = 10
-epochs = 20
+repeats = 100
+epochs = 5
 
 num_layer_loops = 1
 vector_dims = 128*5
@@ -714,13 +720,14 @@ best_val_loss = float('inf')
 best_val_acc = 0
 best_val_return = 0
 
+# %%
 for repeat in range(repeats):
     seiya = SeiyaTrainer(df,
                          'datas/pred_sanren/all',
-                         k_freeze=5, race_field=18
+                         k_freeze=5, race_field=None,
                          shuffle=True)
 
-    seiya.set_dataset(batch_size=120*1)
+    seiya.set_dataset(batch_size=120)
 
     seiya.set_model(num_layer_loops, vector_dims,
                     num_heads)
@@ -740,11 +747,67 @@ for repeat in range(repeats):
     for epoch in range(epochs):
         seiya.run_mono_train(epoch, per_batch, repeat=repeat)
 
-        if epoch - seiya.last_epoch >= 2:
+        best_val_loss = seiya.best_val_loss
+        best_val_acc = seiya.best_val_acc
+        best_val_return = seiya.best_val_return
+
+        if epoch - seiya.last_epoch >= 2 or seiya.temp_val_loss == 0:
             break
 
-    best_val_loss = seiya.best_val_loss
-    best_val_acc = seiya.best_val_acc
-    best_val_return = seiya.best_val_return
 
+# %%
+seiya.model.load_weights(seiya.weight_name)
+
+prediction, label, odds = [], [], []
+for x, y in tqdm(seiya.val_dataset):
+    prediction.append(seiya.model(x)[0])
+    label.append(y[0])
+    odds.append(y[2])
+
+prediction = tf.concat(prediction, axis=0).numpy()
+label = tf.concat(label, axis=0).numpy()
+odds = tf.concat(odds, axis=0).numpy()
+# %%
+prediction
+# %%
+odds.shape
+
+# %%
+ln = len(seiya.sanren_odds)
+sanren_odds = seiya.sanren_odds[int(ln*0.6):int(ln*0.8)]
+# %%
+kitai = prediction*sanren_odds
+# %%
+ret_lis = []
+for pr in range(20):
+    temp_lis = []
+    pr = (pr+1)/100
+    for kk in range(30):
+        kk = kk/10
+
+        bet = (prediction > pr)*(kitai > kk)
+        #print(np.sum(bet))
+        #print(np.sum(bet*odds))
+
+        temp_lis.append(np.sum(bet*odds))
+    ret_lis.append(temp_lis)
+# %%
+np.sum((prediction > 0.07)*(kitai > 1.5)*odds)
+# %%
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+# %%
+plt.contour(X, Y, np.array(ret_lis))
+# %%
+x = np.linspace(-10, 10, 600)
+y = np.linspace(-10, 10, 0)
+X, Y = np.meshgrid(x, y)
+# %%
+pd.DataFrame(ret_lis).plot()
+# %%
+sns.heatmap(ret_lis, center=0, vmax=200, vmin=-200,)
 # %%
