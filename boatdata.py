@@ -62,7 +62,7 @@ def ret_niren():
 
 
 class BoatData:
-    def __init__(self, df, race_field=None, shuffle=False):
+    def __init__(self, df, race_field=None):
         """
         BoatDataクラスの初期化メソッド
 
@@ -70,8 +70,6 @@ class BoatData:
             race_field (int, optional): レース場番号（デフォルト: None）
         """
         self.df = df
-        if shuffle:
-            self.df = self.df.sample(frac=1).reset_index(drop=True)
         self.ar_field, self.df = self.ret_field(race_field)
 
         self.ar_field = self.ar_field - 1
@@ -373,14 +371,14 @@ class BoatData:
 
 
 class BoatDataset(BoatData):
-    def __init__(self, df, race_field=None, shuffle=False):
+    def __init__(self, df, race_field=None):
         """
         ボートデータセットのクラス
 
         Args:
             race_field (int): レース場のフィールド番号 (デフォルト: None)
         """
-        super().__init__(df, race_field, shuffle)
+        super().__init__(df, race_field)
 
         self.sanren_indx = ret_sanren()  # 3連単インデックス
         self.sanren_odds = self.ret_sanrentan_odds()  # 3連単オッズ
@@ -414,9 +412,48 @@ class BoatDataset(BoatData):
         self.computer_prediction = self.computer_prediction - 1
         self.computer_confidence = self.computer_confidence - 1
 
-        self.sanrentan_odds = self.ret_sanrentan_odds()  # 3連単オッズ
+    def sort_dataset(self, index):
+        self.ar_field = self.ar_field[index]
 
-        self.nirentan_odds = self.ret_nirentan_odds()  # 2連単オッズ
+        self.sanren_odds = self.sanren_odds[index]
+        self.niren_odds = self.niren_odds[index]
 
+        self.entry_no = self.entry_no[index]
+        self.th = self.th[index]
+        self.grade = self.grade[index]
+
+        self.incose = self.incose[index]
+
+        self.zenkoku_shouritsu = self.zenkoku_shouritsu[index]
+        self.touchi_shouritsu = self.touchi_shouritsu[index]
+
+        self.flying_latestart = self.flying_latestart[index]
+
+        self.average_starttime = self.average_starttime[index]
+
+        self.motor_no = self.motor_no[index]
+        self.boat_no = self.boat_no[index]
+
+        self.motor_shouritsu = self.motor_shouritsu[index]
+        self.boat_shouritsu = self.boat_shouritsu[index]
+
+        self.ex_no = self.ex_no[index]
+        self.ex_cose = self.ex_cose[index]
+        self.ex_start = self.ex_start[index]
+        self.ex_result = self.ex_result[index]
+
+        self.start_time = self.start_time[index]
+        self.tenji_time = self.tenji_time[index]
+
+        self.wether = self.wether[index]
+        self.wind = self.wind[index]
+        self.tempreture = self.tempreture[index]
+        self.wind_speed = self.wind_speed[index]
+        self.water_tempreture = self.water_tempreture[index]
+        self.water_hight = self.water_hight[index]
+
+        self.computer_prediction = self.computer_prediction[index]
+        self.computer_confidence = self.computer_confidence[index]
+        self.prediction_mark = self.prediction_mark[index]
 
 # %%
