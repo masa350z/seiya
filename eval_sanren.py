@@ -1,5 +1,5 @@
 # %%
-from keras.activations import gelu, relu, sigmoid, softmax
+from keras.activations import gelu
 from keras import layers
 import numpy as np
 import pandas as pd
@@ -10,7 +10,6 @@ from keras.initializers import he_uniform
 from tqdm import tqdm
 import logging
 import os
-import seaborn as sns
 
 
 # TensorFlowの警告メッセージを非表示にする
@@ -38,48 +37,125 @@ def calc_acurracy(prediction, label):
 
 
 class SeiyaDataSet(boatdata.BoatDataset):
-    def __init__(self, df, race_field=None):
-        super().__init__(df, race_field)
-        self.data_index = np.array(pd.read_csv('index.csv')).reshape(-1)
-        self.data_y = self.ret_sanren_onehot()
+    def __init__(self, df,
+                 batch_size,
+                 race_field=None,
+                 train_rate=0.6,
+                 val_rate=0.2,
+                 data_index=None):
+        super().__init__(df)
 
-        self.odds_sanren_label = self.sanren_odds*self.data_y - 1
-        self.odds_sanren_label = tf.data.Dataset.from_tensor_slices(self.odds_sanren_label[self.data_index].astype('float32'))
-        self.dataset_y = tf.data.Dataset.from_tensor_slices(self.data_y[self.data_index])
-        self.dataset_y = tf.data.Dataset.zip((self.dataset_y, self.odds_sanren_label))
+        if data_index:
+            self.data_index = data_index
+        else:
+            self.data_index = np.arange(len(self.sanren_odds))
 
-        self.dataset_x = self.ret_data_x()
-
-        self.dataset = tf.data.Dataset.zip((self.dataset_x, self.dataset_y))
-
-    def ret_data_x(self):
-        filtered_racer = self.ret_known_racer()
-        data_x = tf.data.Dataset.from_tensor_slices((filtered_racer[self.data_index], self.grade[self.data_index], self.incose[self.data_index],
-                                                     self.flying_latestart[self.data_index][:, :, 0],
-                                                     self.flying_latestart[self.data_index][:, :, 1],
-                                                     self.average_starttime[self.data_index],
-                                                     self.zenkoku_shouritsu[self.data_index], self.touchi_shouritsu[self.data_index],
-                                                     self.motor_shouritsu[self.data_index], self.boat_shouritsu[self.data_index],
-                                                     self.ex_no[self.data_index], self.ex_cose[self.data_index],
-                                                     self.ex_result[self.data_index], self.ex_start[self.data_index],
-                                                     self.start_time[self.data_index], self.tenji_time[self.data_index],
-                                                     ))
-
-        return data_x
-
-    def set_dataset(self, batch_size, train_rate=0.6, val_rate=0.2):
-        dataset_size = tf.data.experimental.cardinality(self.dataset).numpy()
-
-        self.train_size = int(train_rate * dataset_size)
-        self.val_size = int(val_rate * dataset_size)
-
-        train_dataset = self.dataset.take(self.train_size)
-        val_dataset = self.dataset.skip(self.train_size).take(self.val_size)
-        test_dataset = self.dataset.skip(self.train_size + self.val_size)
+        train_dataset, valid_dataset, test_dataset = self.ret_dataset(train_rate, val_rate)
 
         self.train_dataset = train_dataset.batch(batch_size)
-        self.val_dataset = val_dataset.batch(batch_size)
+        self.valid_dataset = valid_dataset.batch(batch_size)
         self.test_dataset = test_dataset.batch(batch_size)
+
+    def ret_dataset(self, train_rate, val_rate):
+        dataset_size = len(self.data_index)
+        train_size = int(train_rate * dataset_size)
+        val_size = int(val_rate * dataset_size)
+
+        filtered_racer = self.ret_known_racer()
+        self.sort_dataset(self.data_index)
+        filtered_racer = filtered_racer[self.data_index]
+
+        onehot_label = self.ret_sanren_onehot()
+        odds_label = self.sanren_odds*onehot_label - 1
+        odds_label = odds_label.astype('float32')
+
+        train_x = \
+            tf.data.Dataset.from_tensor_slices(
+                (filtered_racer[:train_size],
+                 self.grade[:train_size],
+                 self.incose[:train_size],
+                 self.flying_latestart[:train_size][:, :, 0],
+                 self.flying_latestart[:train_size][:, :, 1],
+                 self.average_starttime[:train_size],
+                 self.zenkoku_shouritsu[:train_size],
+                 self.touchi_shouritsu[:train_size],
+                 self.motor_shouritsu[:train_size],
+                 self.boat_shouritsu[:train_size],
+                 self.ex_no[:train_size],
+                 self.ex_cose[:train_size],
+                 self.ex_result[:train_size],
+                 self.ex_start[:train_size],
+                 self.start_time[:train_size],
+                 self.tenji_time[:train_size],)
+                 )
+
+        valid_x = \
+            tf.data.Dataset.from_tensor_slices(
+                (filtered_racer[train_size:train_size + val_size],
+                 self.grade[train_size:train_size + val_size],
+                 self.incose[train_size:train_size + val_size],
+                 self.flying_latestart[train_size:train_size + val_size][:, :, 0],
+                 self.flying_latestart[train_size:train_size + val_size][:, :, 1],
+                 self.average_starttime[train_size:train_size + val_size],
+                 self.zenkoku_shouritsu[train_size:train_size + val_size],
+                 self.touchi_shouritsu[train_size:train_size + val_size],
+                 self.motor_shouritsu[train_size:train_size + val_size],
+                 self.boat_shouritsu[train_size:train_size + val_size],
+                 self.ex_no[train_size:train_size + val_size],
+                 self.ex_cose[train_size:train_size + val_size],
+                 self.ex_result[train_size:train_size + val_size],
+                 self.ex_start[train_size:train_size + val_size],
+                 self.start_time[train_size:train_size + val_size],
+                 self.tenji_time[train_size:train_size + val_size],)
+                 )
+
+        test_x = \
+            tf.data.Dataset.from_tensor_slices(
+                (filtered_racer[train_size + val_size:],
+                 self.grade[train_size + val_size:],
+                 self.incose[train_size + val_size:],
+                 self.flying_latestart[train_size + val_size:][:, :, 0],
+                 self.flying_latestart[train_size + val_size:][:, :, 1],
+                 self.average_starttime[train_size + val_size:],
+                 self.zenkoku_shouritsu[train_size + val_size:],
+                 self.touchi_shouritsu[train_size + val_size:],
+                 self.motor_shouritsu[train_size + val_size:],
+                 self.boat_shouritsu[train_size + val_size:],
+                 self.ex_no[train_size + val_size:],
+                 self.ex_cose[train_size + val_size:],
+                 self.ex_result[train_size + val_size:],
+                 self.ex_start[train_size + val_size:],
+                 self.start_time[train_size + val_size:],
+                 self.tenji_time[train_size + val_size:],)
+                 )
+
+        train_onehot_label = \
+            tf.data.Dataset.from_tensor_slices(onehot_label[:train_size])
+
+        valid_onehot_label = \
+            tf.data.Dataset.from_tensor_slices(onehot_label[train_size:train_size + val_size])
+
+        test_onehot_label = \
+            tf.data.Dataset.from_tensor_slices(onehot_label[train_size + val_size:])
+
+        train_odds_label = \
+            tf.data.Dataset.from_tensor_slices(odds_label[:train_size])
+
+        valid_odds_label = \
+            tf.data.Dataset.from_tensor_slices(odds_label[train_size:train_size + val_size])
+
+        test_odds_label = \
+            tf.data.Dataset.from_tensor_slices(odds_label[train_size + val_size:])
+
+        train_y = tf.data.Dataset.zip((train_onehot_label, train_odds_label))
+        valid_y = tf.data.Dataset.zip((valid_onehot_label, valid_odds_label))
+        test_y = tf.data.Dataset.zip((test_onehot_label, test_odds_label))
+
+        train_dataset = tf.data.Dataset.zip((train_x, train_y))
+        valid_dataset = tf.data.Dataset.zip((valid_x, valid_y))
+        test_dataset = tf.data.Dataset.zip((test_x, test_y))
+
+        return train_dataset, valid_dataset, test_dataset
 
     def ret_known_racer(self, unknown_rate=0.7, k_std=-2):
         known_racers, counts = np.unique(self.entry_no[:-int(len(self.entry_no)*unknown_rate)],
@@ -100,7 +176,7 @@ class SeiyaDataSet(boatdata.BoatDataset):
 
         sanren_one_hot = 1*((sanren_num - th123.reshape(-1, 1)) == 0)
 
-        return sanren_one_hot
+        return sanren_one_hot[self.data_index]
 
     def ret_niren_onehot(self):
         niren_num = boatdata.ret_niren()
@@ -110,12 +186,14 @@ class SeiyaDataSet(boatdata.BoatDataset):
 
         niren_one_hot = 1*((niren_num - th12.reshape(-1, 1)) == 0)
 
-        return niren_one_hot
+        return niren_one_hot[self.data_index]
 
 
 class OutPutTransformer(btt.TransformerBase):
     def __init__(self, num_layer_loops, vector_dims, num_heads, inner_dims):
-        super(OutPutTransformer, self).__init__(num_layer_loops, vector_dims, num_heads, inner_dims)
+        super(OutPutTransformer, self).__init__(
+            num_layer_loops, vector_dims, num_heads, inner_dims
+            )
 
         self.position_vector = btt.positional_encoding(6,
                                                        vector_dims,
@@ -150,30 +228,9 @@ class DecoderDense(layers.Layer):
         self.dense04 = layers.Dense(feature_dims,
                                     activation=gelu,
                                     kernel_initializer=he_uniform)
-        self.dense05 = layers.Dense(feature_dims,
-                                    activation=gelu,
-                                    kernel_initializer=he_uniform)
-        self.dense06 = layers.Dense(feature_dims,
-                                    activation=gelu,
-                                    kernel_initializer=he_uniform)
-        self.dense07 = layers.Dense(feature_dims,
-                                    activation=gelu,
-                                    kernel_initializer=he_uniform)
-        self.dense08 = layers.Dense(feature_dims,
-                                    activation=gelu,
-                                    kernel_initializer=he_uniform)
-        self.dense09 = layers.Dense(feature_dims,
-                                    activation=gelu,
-                                    kernel_initializer=he_uniform)
-        self.dense10 = layers.Dense(feature_dims,
-                                    activation=gelu,
-                                    kernel_initializer=he_uniform)
 
         self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
         self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm3 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm4 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm5 = layers.LayerNormalization(epsilon=1e-6)
 
     def call(self, x):
         x = self.dense01(x)
@@ -182,17 +239,6 @@ class DecoderDense(layers.Layer):
         x_ = self.dense03(x)
         x_ = self.dense04(x_)
         x = self.layernorm2(x_ + x)
-        """
-        x_ = self.dense05(x)
-        x_ = self.dense06(x_)
-        x = self.layernorm3(x_ + x)
-        x_ = self.dense07(x)
-        x_ = self.dense08(x_)
-        x = self.layernorm4(x_ + x)
-        x_ = self.dense09(x)
-        x_ = self.dense10(x_)
-        x = self.layernorm5(x_ + x)
-        """
 
         return x
 
@@ -204,13 +250,14 @@ class Seiya(tf.keras.Model):
 
         self.racer_encoder = btt.RacerTransformer(num_layer_loops, vector_dims,
                                                   num_heads, vector_dims)
-        #self.f_l_encoder = btt.F_L_Encoder(vector_dims)
-        #self.avest_encoder = btt.aveST_Encoder(vector_dims)
+        self.f_l_encoder = btt.F_L_Encoder(vector_dims)
+        self.avest_encoder = btt.aveST_Encoder(vector_dims)
         self.racer_winning_rate_encoder = btt.RacerWinningRateEncoder(vector_dims)
-        #self.motor_boat_winning_rate_encoder = btt.MotorBoatWinningRateEncoder(vector_dims)
-        #self.current_info_encoder = btt.CurrentInfoTransformer(num_layer_loops, vector_dims,num_heads, vector_dims)
+        self.motor_boat_winning_rate_encoder = btt.MotorBoatWinningRateEncoder(vector_dims)
+        self.current_info_encoder = btt.CurrentInfoTransformer(num_layer_loops, vector_dims,
+                                                               num_heads, vector_dims)
         self.start_tenji_encoder = btt.StartTenjiEncoder(vector_dims)
-        self.output_transformer = OutPutTransformer(num_layer_loops, vector_dims, 
+        self.output_transformer = OutPutTransformer(num_layer_loops, vector_dims,
                                                     num_heads, vector_dims)
 
         self.decoder_dense = DecoderDense(120)
@@ -222,22 +269,31 @@ class Seiya(tf.keras.Model):
             ex_result, ex_start, start_time, tenji_time = x
 
         racer, position_vector = self.racer_encoder([racer, grade, incose])
-        #f_l = self.f_l_encoder([flying, latestart])
-        #avest = self.avest_encoder(avest)
-        racer_winning_rate = self.racer_winning_rate_encoder([zenkoku_shouritsu, touchui_shouritsu])
-        #motor_boat_winning_rate = self.motor_boat_winning_rate_encoder([motor_shouritsu, boat_shouritsu])
-        #current_info = self.current_info_encoder([ex_no, ex_cose, ex_result, ex_start])
-        start_tenji = self.start_tenji_encoder([start_time, tenji_time])
+        f_l = self.f_l_encoder([flying, latestart])
+        avest = self.avest_encoder(avest)
+
+        racer_winning_rate = self.racer_winning_rate_encoder(
+            [zenkoku_shouritsu, touchui_shouritsu]
+            )
+        motor_boat_winning_rate = self.motor_boat_winning_rate_encoder(
+            [motor_shouritsu, boat_shouritsu]
+            )
+        current_info = self.current_info_encoder(
+            [ex_no, ex_cose, ex_result, ex_start]
+            )
+        start_tenji = self.start_tenji_encoder(
+            [start_time, tenji_time]
+            )
 
         racer = racer[:, 1:]
-        #current_info = current_info[:, :, 0]
+        current_info = current_info[:, :, 0]
 
         x = tf.stack([racer,
-                      #f_l,
-                      #avest, 
+                      f_l,
+                      avest,
                       racer_winning_rate,
-                      #motor_boat_winning_rate,
-                      #current_info,
+                      motor_boat_winning_rate,
+                      current_info,
                       start_tenji,
                       ], 1)
 
@@ -250,12 +306,8 @@ class Seiya(tf.keras.Model):
 
 
 class SeiyaTrainer(SeiyaDataSet):
-    def __init__(self, df, weight_name, k_freeze, race_field=None):
-        super().__init__(df, race_field)
-
-        self.weight_params = ['weight']
-        self.output_params = ['decoder_dense']
-
+    def __init__(self, df, batch_size, weight_name, k_freeze, race_field=None):
+        super().__init__(df, batch_size)
         os.makedirs(weight_name, exist_ok=True)
         self.weight_name = weight_name + '/best_weights'
 
@@ -284,7 +336,6 @@ class SeiyaTrainer(SeiyaDataSet):
         self.num_layer_loops = num_layer_loops
         self.vector_dims = vector_dims
         self.num_heads = num_heads
-        self.inner_dims = inner_dims
 
     def set_optimizer(self, learning_rate):
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
@@ -292,8 +343,6 @@ class SeiyaTrainer(SeiyaDataSet):
     def train_step(self, data_x, data_y):
         with tf.GradientTape() as tape:
             loss = tf.keras.losses.CategoricalCrossentropy()(data_y[0], self.model(data_x))
-
-            #loss = custom_loss(self.model(data_x), data_y[1])
 
         gradients = tape.gradient(loss, self.model.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
@@ -317,7 +366,7 @@ class SeiyaTrainer(SeiyaDataSet):
 
             if batch % per_batch == 0 and not batch == 0:
                 prediction, label, odds = [], [], []
-                for x, y in tqdm(self.val_dataset):
+                for x, y in tqdm(self.valid_dataset):
                     prediction.append(self.model(x))
                     label.append(y[0])
                     odds.append(y[1])
@@ -327,29 +376,14 @@ class SeiyaTrainer(SeiyaDataSet):
                 odds = tf.concat(odds, axis=0)
 
                 val_acc = calc_acurracy(prediction, label).numpy()
-                #odds_return = prediction*odds
-                #odds_return = tf.reduce_mean(odds_return)
-
-                #val_loss = -1*odds_return
                 val_loss = tf.keras.losses.CategoricalCrossentropy()(label, prediction).numpy()
-                #val_loss = custom_loss(prediction, odds+1).numpy()
-
 
                 if val_loss < self.temp_val_loss:
                     self.last_epoch = epoch
                     self.freeze = 0
                     self.temp_val_loss = val_loss
                     self.temp_val_acc = val_acc
-                    #self.temp_val_return = odds_return
                     self.temp_weights = self.model.get_weights()
-
-                    """
-                    if val_loss < self.best_val_loss:
-                        self.best_val_loss = val_loss
-                        self.best_val_acc = val_acc
-                        #self.best_val_return = odds_return
-                        self.model.save_weights(self.weight_name)
-                    """
                 else:
                     if self.freeze == 0:
                         self.model.set_weights(self.temp_weights)
@@ -364,45 +398,37 @@ class SeiyaTrainer(SeiyaDataSet):
                 print(f"Best valid loss : {self.best_val_loss}")
                 print(f"Temp valid acc : {self.temp_val_acc}")
                 print(f"Best valid acc : {self.best_val_acc}")
-                #print(f"Temp valid return : {self.temp_val_return}")
-                #print(f"Best valid return : {self.best_val_return}")
 
 
 # %%
 df = pd.read_csv('datas/boatdata.csv')
-#df = pd.read_csv('datas/boatdata_shuffled.csv')
-#df.sample(frac=1).reset_index(drop=True).to_csv('datas/boatdata_shuffled.csv')
-#indx = np.arange(len(df))
-#np.random.shuffle(indx)
-#pd.DataFrame(indx, columns=['index']).to_csv('index.csv', index=False)
+data_index = np.array(pd.read_csv('index.csv')).reshape(-1)
 # %%
-per_batch = 100
+per_batch = 500
 
 repeats = 100
-epochs = 25
+epochs = 100
 
 num_layer_loops = 3
 vector_dims = 128*5
 num_heads = 8
-inner_dims = vector_dims
 
 best_val_loss = float('inf')
 best_val_acc = 0
 best_val_return = 0
 
-
+batch_size = 120*1
+"""
 for repeat in range(repeats):
     seiya = SeiyaTrainer(df,
+                         batch_size,
                          'datas/pred_sanren/all_onehot',
                          k_freeze=3, race_field=None)
-
-    seiya.set_dataset(batch_size=120*1)
 
     seiya.set_model(num_layer_loops, vector_dims,
                     num_heads)
 
     seiya.set_optimizer(learning_rate=2e-4)
-    #seiya.model.load_weights('datas/pred_sanren/all_onehot/best_weights')
 
     seiya.temp_val_loss = float('inf')
     seiya.temp_val_acc = 0
@@ -445,11 +471,9 @@ for repeat in range(repeats):
 """
 # %%
 seiya = SeiyaTrainer(df,
-                        'datas/pred_sanren/all_onehot',
-                        k_freeze=5, race_field=None,
-                        shuffle=False)
-
-seiya.set_dataset(batch_size=120)
+                     batch_size,
+                     'datas/pred_sanren/all_onehot',
+                     k_freeze=3, race_field=None)
 
 seiya.set_model(num_layer_loops, vector_dims,
                 num_heads)
@@ -514,4 +538,3 @@ sns.heatmap(np.array(vl_matrix)*filt, vmax=vl, vmin=0,)
 # %%
 sns.heatmap(np.array(te_matrix)*filt, vmax=vl, vmin=0,)
 # %%
-"""
